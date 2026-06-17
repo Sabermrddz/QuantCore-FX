@@ -85,13 +85,13 @@ class FredClient:
                 self.last_error = f"{currency}: API timeout (attempt {attempt + 1}/{max_retries})"
                 if config.DEBUG:
                     print(f"[FRED] {self.last_error}")
-                time.sleep(0.5 ** attempt)  # Exponential backoff
+                time.sleep(0.5 * (2 ** attempt))  # Exponential backoff
                 
             except requests.ConnectionError:
                 self.last_error = f"{currency}: Connection error (attempt {attempt + 1}/{max_retries})"
                 if config.DEBUG:
                     print(f"[FRED] {self.last_error}")
-                time.sleep(0.5 ** attempt)
+                time.sleep(0.5 * (2 ** attempt))
                 
             except ValueError as e:
                 self.last_error = f"{currency}: {str(e)}"

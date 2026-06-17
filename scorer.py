@@ -234,7 +234,7 @@ def generate_signal(scores: Dict[str, Dict]) -> Tuple[str, str, str]:
         status = "ACTIVE"
         
         # Classify gap tier
-        if gap >= config.GAP_THRESHOLDS["strong"]:
+        if gap >= 60:
             tier = "Strong signal"
         elif gap >= config.GAP_THRESHOLDS["standard"]:
             tier = "Standard signal"
@@ -252,6 +252,40 @@ def generate_signal(scores: Dict[str, Dict]) -> Tuple[str, str, str]:
     return signal_text, status, gap_desc
 
 
+def build_directional_bias_matrix(scores: Dict[str, Dict]) -> Dict[str, Dict]:
+    """Build a permanent monthly directional bias matrix from Layer 1 scores.
+
+    Rules:
+      - Top 2 scores → "STRONG" — currency must only be longed, never shorted
+      - Bottom 2 scores → "WEAK" — currency must only be shorted, never longed
+      - Middle 4 scores → "NEUTRAL" — no directional restriction
+
+    Returns:
+        {
+            "USD": {"direction": "STRONG", "score": 85.2, "rank": 1},
+            "EUR": {"direction": "NEUTRAL", "score": 55.0, "rank": 4},
+            "JPY": {"direction": "WEAK", "score": 22.1, "rank": 8},
+            ...
+        }
+    """
+    ranked = get_ranked_list(scores)
+    n = len(ranked)
+    matrix = {}
+    for i, (currency, total_score, rank) in enumerate(ranked):
+        if i < 2 and n >= 4:
+            direction = "STRONG"
+        elif i >= n - 2 and n >= 4:
+            direction = "WEAK"
+        else:
+            direction = "NEUTRAL"
+        matrix[currency] = {
+            "direction": direction,
+            "score": total_score,
+            "rank": rank,
+        }
+    return matrix
+
+
 def get_gap_tier(gap: float) -> str:
     """
     Classify a gap size into trading tiers.
@@ -263,7 +297,7 @@ def get_gap_tier(gap: float) -> str:
         return "no_trade"
     elif gap < config.GAP_THRESHOLDS["standard"]:
         return "weak"
-    elif gap < config.GAP_THRESHOLDS["strong"]:
+    elif gap < 60:
         return "standard"
     else:
         return "strong"

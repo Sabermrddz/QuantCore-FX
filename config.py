@@ -19,7 +19,7 @@ from dotenv import load_dotenv
 from pathlib import Path
 
 # Load .env file from project root
-env_path = Path(__file__).parent.parent / ".env"
+env_path = Path(__file__).parent / ".env"
 load_dotenv(dotenv_path=env_path)
 
 # ============================================================================
@@ -63,12 +63,12 @@ CB_TARGETS = {
 FRED_SERIES = {
     "USD": "FEDFUNDS",  # US Federal Funds Rate
     "EUR": "ECBDFR",    # ECB Deposit Rate
-    "GBP": "BOEBR",     # Bank of England Base Rate
-    "JPY": "IRSTJPN",   # Japan Policy Rate (or manual from BOJ website)
-    "AUD": "RBATCTR",   # RBA Cash Target Rate
-    "CAD": "BOCCRT",    # BOC Policy Interest Rate
-    "CHF": "SNBPOL",    # SNB Policy Rate
-    "NZD": "RBNZOCR",   # RBNZ Official Cash Rate
+    "GBP": "BOEIR",     # Bank of England Interest Rate
+    "JPY": "IRSTCI01JPM156N",  # Japan Short-Term Interest Rate
+    "AUD": "RBATR",     # RBA Target Cash Rate
+    "CAD": "BOCARR",    # Bank of Canada Overnight Rate
+    "CHF": "SNBON",     # SNB Policy Rate
+    "NZD": "RBNZR",     # RBNZ Official Cash Rate
 }
 
 # ============================================================================
@@ -107,44 +107,14 @@ AUTO_FETCH_RATES_ON_STARTUP = os.getenv("AUTO_FETCH_RATES_ON_STARTUP", "true").l
 FRED_FETCH_TIMEOUT = 10  # seconds
 
 # ============================================================================
-# UI Settings
-# ============================================================================
-APP_TITLE = "APEX Layer 1 — Currency Strength Engine"
-WINDOW_WIDTH = 1200
-WINDOW_HEIGHT = 800
-TAB_NAMES = {
-    "dashboard": "Dashboard",
-    "entry": "Monthly Entry",
-    "history": "History",
-    "settings": "Settings",
-}
-
-# Currency display format (with flags for nice UI)
-CURRENCY_EMOJIS = {
-    "USD": "🇺🇸",
-    "EUR": "🇪🇺",
-    "GBP": "🇬🇧",
-    "JPY": "🇯🇵",
-    "AUD": "🇦🇺",
-    "CAD": "🇨🇦",
-    "CHF": "🇨🇭",
-    "NZD": "🇳🇿",
-}
-
-# ============================================================================
 # Data Validation Rules
 # ============================================================================
-# For CPI entry
-CPI_MIN = -10.0  # Reasonable lower bound for inflation
-CPI_MAX = 50.0   # Reasonable upper bound (hyperinflation)
-
-# For PMI entry
-PMI_MIN = 0.0    # PMI is 0-100
-PMI_MAX = 100.0
-
-# For interest rates
 RATE_MIN = -5.0  # Some CBs have negative rates
 RATE_MAX = 20.0  # Reasonable upper bound
+CPI_MIN = float(os.getenv("CPI_MIN", -5.0))
+CPI_MAX = float(os.getenv("CPI_MAX", 10.0))
+PMI_MIN = float(os.getenv("PMI_MIN", 0.0))
+PMI_MAX = float(os.getenv("PMI_MAX", 100.0))
 
 # ============================================================================
 # Database Settings
@@ -188,12 +158,90 @@ def validate_config():
 # ============================================================================
 DEBUG = os.getenv("DEBUG", "false").lower() == "true"
 
+# ============================================================================
+# UI Configuration
+# ============================================================================
+APP_TITLE = "APEX — Currency Strength Engine"
+WINDOW_WIDTH = 1400
+WINDOW_HEIGHT = 850
+
+TAB_NAMES = {
+    "dashboard": "📊 Dashboard",
+    "entry": "📝 Data Entry",
+    "layer2": "📈 Layer 2 (Technical)",
+    "confluence": "🎯 Confluence Signals",
+    "history": "📜 History",
+    "settings": "⚙️ Settings"
+}
+
+# Currency emojis for UI
+CURRENCY_EMOJIS = {
+    "USD": "🇺🇸",
+    "EUR": "🇪🇺",
+    "GBP": "🇬🇧",
+    "JPY": "🇯🇵",
+    "AUD": "🇦🇺",
+    "CAD": "🇨🇦",
+    "CHF": "🇨🇭",
+    "NZD": "🇳🇿",
+}
+
+# ============================================================================
+# LAYER 2 — Technical Analysis Configuration
+# ============================================================================
+# MetaTrader 5 (local terminal, no API key needed)
+# Symbol suffix varies by broker (e.g., .m for OANDA MT5)
+MT5_SYMBOL_SUFFIX = os.getenv("MT5_SYMBOL_SUFFIX", "")
+
+# Technical Analysis Settings
+Z_SCORE_THRESHOLD = float(os.getenv("Z_SCORE_THRESHOLD", 2.0))  # Overbought/oversold level
+Z_SCORE_LOOKBACK = int(os.getenv("Z_SCORE_LOOKBACK", 288))  # Bars for Z-score calculation (288 M5 bars = 24 hours)
+
+# Historical Bar Configuration (Task 1.1 — Multi-hour anchored lookback)
+BAR_TIMEFRAME = os.getenv("BAR_TIMEFRAME", "M5")  # M1 or M5 bar intervals
+BAR_LOOKBACK_HOURS = int(os.getenv("BAR_LOOKBACK_HOURS", 48))  # Hours of historical data
+BAR_LOOKBACK_BARS = int(os.getenv("BAR_LOOKBACK_BARS", 288))  # Total bars (288 M5 bars = 24h)
+HISTORICAL_POLL_INTERVAL = int(os.getenv("HISTORICAL_POLL_INTERVAL", 300))  # 5 min in seconds
+
+# Session Detection
+SESSION_TOKYO_OPEN = 0    # 00:00 UTC
+SESSION_TOKYO_CLOSE = 8   # 08:00 UTC
+SESSION_LONDON_OPEN = 7   # 07:00 UTC
+SESSION_LONDON_CLOSE = 16 # 16:00 UTC
+SESSION_NEWYORK_OPEN = 13 # 13:00 UTC
+SESSION_NEWYORK_CLOSE = 21# 21:00 UTC
+
+# Confluence Settings
+CONFLUENCE_ENABLED = os.getenv("CONFLUENCE_ENABLED", "true").lower() == "true"
+MIN_CONFLUENCE_STRENGTH = float(os.getenv("MIN_CONFLUENCE_STRENGTH", 60.0))  # 60% confidence threshold
+
+# Risk Management
+ACCOUNT_BALANCE = float(os.getenv("ACCOUNT_BALANCE", 10000.0))  # Starting balance
+RISK_PER_TRADE = float(os.getenv("RISK_PER_TRADE", 0.01))  # 1% per trade
+MAX_PORTFOLIO_LEVERAGE = float(os.getenv("MAX_PORTFOLIO_LEVERAGE", 2.0))  # Max 2:1 leverage
+USE_GRID_HEDGING = os.getenv("USE_GRID_HEDGING", "true").lower() == "true"
+GRID_LEVELS = int(os.getenv("GRID_LEVELS", 3))  # Number of hedging levels
+
+# ============================================================================
+# Mock Data Feeder Configuration (previously magic numbers)
+# ============================================================================
+MOCK_DRIFT = float(os.getenv("MOCK_DRIFT", 0.0001))
+MOCK_THETA = float(os.getenv("MOCK_THETA", 0.02))
+MOCK_NOISE_STD = float(os.getenv("MOCK_NOISE_STD", 0.0008))
+MOCK_SEASONAL_AMP = float(os.getenv("MOCK_SEASONAL_AMP", 0.0003))
+MOCK_TICK_NOISE = float(os.getenv("MOCK_TICK_NOISE", 0.0002))
+MOCK_BID_ASK_SPREAD = float(os.getenv("MOCK_BID_ASK_SPREAD", 0.0001))
+MOCK_HISTORICAL_DAILY_NOISE = float(os.getenv("MOCK_HISTORICAL_DAILY_NOISE", 0.01))
+
 if DEBUG:
     print("[CONFIG] Debug mode enabled")
     print(f"[CONFIG] FRED API Key: {FRED_API_KEY[:10]}..." if FRED_API_KEY else "[CONFIG] FRED API Key: NOT SET")
+    print(f"[CONFIG] MT5 symbol suffix: '{MT5_SYMBOL_SUFFIX}'")
     print(f"[CONFIG] Database: {DB_PATH}")
     print(f"[CONFIG] Weights: Rate={WEIGHT_RATE}, CPI={WEIGHT_CPI}, PMI={WEIGHT_PMI}")
     print(f"[CONFIG] Min gap to trade: {MIN_GAP_TO_TRADE}")
+    print(f"[CONFIG] Z-score threshold: {Z_SCORE_THRESHOLD}")
+    print(f"[CONFIG] Confluence enabled: {CONFLUENCE_ENABLED}")
 
 
 # Call validation on import (fail early if config is broken)

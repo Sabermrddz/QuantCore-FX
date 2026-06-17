@@ -13,7 +13,8 @@ All operations use parameterized queries to prevent SQL injection.
 """
 
 import sqlite3
-from datetime import datetime
+import threading
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional, Dict, List, Tuple
 import config
@@ -38,14 +39,17 @@ class Database:
         Path(self.db_path).parent.mkdir(parents=True, exist_ok=True)
         
         try:
+            self._lock = threading.Lock()
             self.conn = sqlite3.connect(
                 self.db_path,
                 timeout=config.DB_TIMEOUT,
                 check_same_thread=False  # Allow access from multiple threads
             )
             self.conn.row_factory = sqlite3.Row  # Return rows as dicts
-            
-            # Enable foreign keys
+
+            # Performance PRAGMAs (Task 2.2 — WAL + synchronous=NORMAL)
+            self.conn.execute("PRAGMA journal_mode=WAL")
+            self.conn.execute("PRAGMA synchronous=NORMAL")
             self.conn.execute("PRAGMA foreign_keys = ON")
             
             if config.DB_AUTO_CREATE:
@@ -56,75 +60,96 @@ class Database:
     
     def _create_schema(self):
         """Create database schema if it doesn't exist."""
-        cursor = self.conn.cursor()
-        
         try:
-            # Table 1: Interest rates (updated via FRED API)
-            cursor.execute("""
-                CREATE TABLE IF NOT EXISTS rates (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    currency TEXT NOT NULL UNIQUE,
-                    rate REAL NOT NULL,
-                    updated_at TEXT NOT NULL,
-                    source TEXT DEFAULT 'FRED',
-                    CONSTRAINT valid_currency CHECK (currency IN ('USD', 'EUR', 'GBP', 'JPY', 'AUD', 'CAD', 'CHF', 'NZD'))
-                );
-            """)
+            with self._lock:
+                cursor = self.conn.cursor()
             
-            # Table 2: Monthly manual entries (CPI + PMI)
-            cursor.execute("""
-                CREATE TABLE IF NOT EXISTS monthly_data (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    month TEXT NOT NULL,
-                    currency TEXT NOT NULL,
-                    cpi_actual REAL,
-                    pmi_actual REAL,
-                    entered_at TEXT NOT NULL,
-                    UNIQUE(month, currency),
-                    CONSTRAINT valid_currency CHECK (currency IN ('USD', 'EUR', 'GBP', 'JPY', 'AUD', 'CAD', 'CHF', 'NZD')),
-                    CONSTRAINT valid_month CHECK (month LIKE '____-__')
-                );
-            """)
-            
-            # Table 3: Calculated scores (generated after each data entry)
-            cursor.execute("""
-                CREATE TABLE IF NOT EXISTS scores (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    month TEXT NOT NULL,
-                    currency TEXT NOT NULL,
-                    score_rate REAL,
-                    score_cpi REAL,
-                    score_pmi REAL,
-                    total_score REAL NOT NULL,
-                    rank INTEGER NOT NULL,
-                    calculated_at TEXT NOT NULL,
-                    UNIQUE(month, currency),
-                    CONSTRAINT valid_currency CHECK (currency IN ('USD', 'EUR', 'GBP', 'JPY', 'AUD', 'CAD', 'CHF', 'NZD')),
-                    CONSTRAINT valid_month CHECK (month LIKE '____-__')
-                );
-            """)
-            
-            # Table 4: Signal log (one per month)
-            cursor.execute("""
-                CREATE TABLE IF NOT EXISTS signals (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    generated_at TEXT NOT NULL,
-                    month TEXT NOT NULL UNIQUE,
-                    strongest TEXT NOT NULL,
-                    weakest TEXT NOT NULL,
-                    gap REAL NOT NULL,
-                    signal TEXT NOT NULL,
-                    status TEXT NOT NULL,
-                    CONSTRAINT valid_status CHECK (status IN ('ACTIVE', 'NO_TRADE', 'CLOSED')),
-                    CONSTRAINT valid_month CHECK (month LIKE '____-__')
-                );
-            """)
-            
-            self.conn.commit()
-            
-            if config.DEBUG:
-                print("[DB] Schema created successfully")
+                # Table 1: Interest rates (updated via FRED API)
+                cursor.execute("""
+                    CREATE TABLE IF NOT EXISTS rates (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        currency TEXT NOT NULL UNIQUE,
+                        rate REAL NOT NULL,
+                        updated_at TEXT NOT NULL,
+                        source TEXT DEFAULT 'FRED',
+                        CONSTRAINT valid_currency CHECK (currency IN ('USD', 'EUR', 'GBP', 'JPY', 'AUD', 'CAD', 'CHF', 'NZD'))
+                    );
+                """)
                 
+                # Table 2: Monthly manual entries (CPI + PMI)
+                cursor.execute("""
+                    CREATE TABLE IF NOT EXISTS monthly_data (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        month TEXT NOT NULL,
+                        currency TEXT NOT NULL,
+                        cpi_actual REAL,
+                        pmi_actual REAL,
+                        entered_at TEXT NOT NULL,
+                        UNIQUE(month, currency),
+                        CONSTRAINT valid_currency CHECK (currency IN ('USD', 'EUR', 'GBP', 'JPY', 'AUD', 'CAD', 'CHF', 'NZD')),
+                        CONSTRAINT valid_month CHECK (month LIKE '____-__')
+                    );
+                """)
+                
+                # Table 3: Calculated scores (generated after each data entry)
+                cursor.execute("""
+                    CREATE TABLE IF NOT EXISTS scores (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        month TEXT NOT NULL,
+                        currency TEXT NOT NULL,
+                        score_rate REAL,
+                        score_cpi REAL,
+                        score_pmi REAL,
+                        total_score REAL NOT NULL,
+                        rank INTEGER NOT NULL,
+                        calculated_at TEXT NOT NULL,
+                        UNIQUE(month, currency),
+                        CONSTRAINT valid_currency CHECK (currency IN ('USD', 'EUR', 'GBP', 'JPY', 'AUD', 'CAD', 'CHF', 'NZD')),
+                        CONSTRAINT valid_month CHECK (month LIKE '____-__')
+                    );
+                """)
+                
+                # Table 4: M1/M5 Interval Bar Cache (Task 2.2 — optimized for bar storage)
+                cursor.execute("""
+                    CREATE TABLE IF NOT EXISTS bar_cache (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        pair TEXT NOT NULL,
+                        timeframe TEXT NOT NULL CHECK (timeframe IN ('M1', 'M5')),
+                        bar_time TEXT NOT NULL,
+                        open REAL,
+                        high REAL,
+                        low REAL,
+                        close REAL NOT NULL,
+                        volume INTEGER DEFAULT 0,
+                        UNIQUE(pair, timeframe, bar_time)
+                    );
+                """)
+                cursor.execute("""
+                    CREATE INDEX IF NOT EXISTS idx_bar_cache_lookup
+                    ON bar_cache(pair, timeframe, bar_time);
+                """)
+
+                # Table 5: Signal log (one per month)
+                cursor.execute("""
+                    CREATE TABLE IF NOT EXISTS signals (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        generated_at TEXT NOT NULL,
+                        month TEXT NOT NULL UNIQUE,
+                        strongest TEXT NOT NULL,
+                        weakest TEXT NOT NULL,
+                        gap REAL NOT NULL,
+                        signal TEXT NOT NULL,
+                        status TEXT NOT NULL,
+                        CONSTRAINT valid_status CHECK (status IN ('ACTIVE', 'NO_TRADE', 'CLOSED')),
+                        CONSTRAINT valid_month CHECK (month LIKE '____-__')
+                    );
+                """)
+                
+                self.conn.commit()
+                
+                if config.DEBUG:
+                    print("[DB] Schema created successfully")
+                    
         except sqlite3.Error as e:
             self.conn.rollback()
             raise RuntimeError(f"Failed to create schema: {e}")
@@ -145,21 +170,22 @@ class Database:
         if currency not in config.CURRENCIES:
             raise ValueError(f"Invalid currency: {currency}")
         
-        cursor = self.conn.cursor()
         try:
-            cursor.execute("""
-                INSERT INTO rates (currency, rate, updated_at, source)
-                VALUES (?, ?, ?, ?)
-                ON CONFLICT(currency) DO UPDATE SET
-                    rate = excluded.rate,
-                    updated_at = excluded.updated_at,
-                    source = excluded.source
-            """, (currency, rate, datetime.utcnow().isoformat(), source))
-            self.conn.commit()
-            
-            if config.DEBUG:
-                print(f"[DB] Rate updated: {currency} = {rate}% (from {source})")
+            with self._lock:
+                cursor = self.conn.cursor()
+                cursor.execute("""
+                    INSERT INTO rates (currency, rate, updated_at, source)
+                    VALUES (?, ?, ?, ?)
+                    ON CONFLICT(currency) DO UPDATE SET
+                        rate = excluded.rate,
+                        updated_at = excluded.updated_at,
+                        source = excluded.source
+                """, (currency, rate, datetime.now(timezone.utc).isoformat(), source))
+                self.conn.commit()
                 
+                if config.DEBUG:
+                    print(f"[DB] Rate updated: {currency} = {rate}% (from {source})")
+                    
         except sqlite3.Error as e:
             self.conn.rollback()
             raise RuntimeError(f"Failed to upsert rate for {currency}: {e}")
@@ -220,30 +246,31 @@ class Database:
         if currency not in config.CURRENCIES:
             raise ValueError(f"Invalid currency: {currency}")
         
-        cursor = self.conn.cursor()
         try:
-            # First, get existing PMI if any
-            cursor.execute(
-                "SELECT pmi_actual FROM monthly_data WHERE month = ? AND currency = ?",
-                (month, currency)
-            )
-            row = cursor.fetchone()
-            pmi = row["pmi_actual"] if row else None
-            
-            # Upsert with CPI
-            cursor.execute("""
-                INSERT INTO monthly_data (month, currency, cpi_actual, pmi_actual, entered_at)
-                VALUES (?, ?, ?, ?, ?)
-                ON CONFLICT(month, currency) DO UPDATE SET
-                    cpi_actual = excluded.cpi_actual,
-                    entered_at = excluded.entered_at
-            """, (month, currency, cpi, pmi, datetime.utcnow().isoformat()))
-            
-            self.conn.commit()
-            
-            if config.DEBUG:
-                print(f"[DB] CPI saved: {month} {currency} = {cpi}%")
+            with self._lock:
+                cursor = self.conn.cursor()
+                # First, get existing PMI if any
+                cursor.execute(
+                    "SELECT pmi_actual FROM monthly_data WHERE month = ? AND currency = ?",
+                    (month, currency)
+                )
+                row = cursor.fetchone()
+                pmi = row["pmi_actual"] if row else None
                 
+                # Upsert with CPI
+                cursor.execute("""
+                    INSERT INTO monthly_data (month, currency, cpi_actual, pmi_actual, entered_at)
+                    VALUES (?, ?, ?, ?, ?)
+                    ON CONFLICT(month, currency) DO UPDATE SET
+                        cpi_actual = excluded.cpi_actual,
+                        entered_at = excluded.entered_at
+                """, (month, currency, cpi, pmi, datetime.now(timezone.utc).isoformat()))
+                
+                self.conn.commit()
+                
+                if config.DEBUG:
+                    print(f"[DB] CPI saved: {month} {currency} = {cpi}%")
+                    
         except sqlite3.Error as e:
             self.conn.rollback()
             raise RuntimeError(f"Failed to update CPI for {currency} in {month}: {e}")
@@ -260,30 +287,31 @@ class Database:
         if currency not in config.CURRENCIES:
             raise ValueError(f"Invalid currency: {currency}")
         
-        cursor = self.conn.cursor()
         try:
-            # First, get existing CPI if any
-            cursor.execute(
-                "SELECT cpi_actual FROM monthly_data WHERE month = ? AND currency = ?",
-                (month, currency)
-            )
-            row = cursor.fetchone()
-            cpi = row["cpi_actual"] if row else None
-            
-            # Upsert with PMI
-            cursor.execute("""
-                INSERT INTO monthly_data (month, currency, cpi_actual, pmi_actual, entered_at)
-                VALUES (?, ?, ?, ?, ?)
-                ON CONFLICT(month, currency) DO UPDATE SET
-                    pmi_actual = excluded.pmi_actual,
-                    entered_at = excluded.entered_at
-            """, (month, currency, cpi, pmi, datetime.utcnow().isoformat()))
-            
-            self.conn.commit()
-            
-            if config.DEBUG:
-                print(f"[DB] PMI saved: {month} {currency} = {pmi}")
+            with self._lock:
+                cursor = self.conn.cursor()
+                # First, get existing CPI if any
+                cursor.execute(
+                    "SELECT cpi_actual FROM monthly_data WHERE month = ? AND currency = ?",
+                    (month, currency)
+                )
+                row = cursor.fetchone()
+                cpi = row["cpi_actual"] if row else None
                 
+                # Upsert with PMI
+                cursor.execute("""
+                    INSERT INTO monthly_data (month, currency, cpi_actual, pmi_actual, entered_at)
+                    VALUES (?, ?, ?, ?, ?)
+                    ON CONFLICT(month, currency) DO UPDATE SET
+                        pmi_actual = excluded.pmi_actual,
+                        entered_at = excluded.entered_at
+                """, (month, currency, cpi, pmi, datetime.now(timezone.utc).isoformat()))
+                
+                self.conn.commit()
+                
+                if config.DEBUG:
+                    print(f"[DB] PMI saved: {month} {currency} = {pmi}")
+                    
         except sqlite3.Error as e:
             self.conn.rollback()
             raise RuntimeError(f"Failed to update PMI for {currency} in {month}: {e}")
@@ -345,6 +373,68 @@ class Database:
             raise RuntimeError(f"Failed to check month completeness for {month}: {e}")
     
     # ========================================================================
+    # BAR_CACHE Table Operations (Task 2.2)
+    # ========================================================================
+
+    def upsert_bar(
+        self, pair: str, timeframe: str, bar_time: str,
+        open_p: float, high: float, low: float, close: float, volume: int = 0
+    ) -> None:
+        with self._lock:
+            cursor = self.conn.cursor()
+            cursor.execute("""
+                INSERT INTO bar_cache (pair, timeframe, bar_time, open, high, low, close, volume)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(pair, timeframe, bar_time) DO UPDATE SET
+                    open = excluded.open,
+                    high = excluded.high,
+                    low = excluded.low,
+                    close = excluded.close,
+                    volume = excluded.volume
+            """, (pair, timeframe, bar_time, open_p, high, low, close, volume))
+            self.conn.commit()
+
+    def get_bars(
+        self, pair: str, timeframe: str, limit: int = 288
+    ) -> List[Dict]:
+        cursor = self.conn.cursor()
+        try:
+            cursor.execute("""
+                SELECT bar_time, open, high, low, close, volume
+                FROM bar_cache
+                WHERE pair = ? AND timeframe = ?
+                ORDER BY bar_time DESC
+                LIMIT ?
+            """, (pair, timeframe, limit))
+            rows = cursor.fetchall()
+            bars = []
+            for r in reversed(rows):
+                bars.append({
+                    "time": r["bar_time"],
+                    "open": r["open"],
+                    "high": r["high"],
+                    "low": r["low"],
+                    "close": r["close"],
+                    "volume": r["volume"],
+                })
+            return bars
+        except sqlite3.Error as e:
+            return []
+
+    def get_latest_bar_time(self, pair: str, timeframe: str) -> Optional[str]:
+        cursor = self.conn.cursor()
+        try:
+            cursor.execute("""
+                SELECT bar_time FROM bar_cache
+                WHERE pair = ? AND timeframe = ?
+                ORDER BY bar_time DESC LIMIT 1
+            """, (pair, timeframe))
+            row = cursor.fetchone()
+            return row["bar_time"] if row else None
+        except sqlite3.Error:
+            return None
+
+    # ========================================================================
     # SCORES Table Operations
     # ========================================================================
     
@@ -356,35 +446,36 @@ class Database:
             month: Month in format "YYYY-MM"
             scores: Dict mapping currency to {score_rate, score_cpi, score_pmi, total_score, rank}
         """
-        cursor = self.conn.cursor()
         try:
-            for currency, score_data in scores.items():
-                cursor.execute("""
-                    INSERT INTO scores (month, currency, score_rate, score_cpi, score_pmi, total_score, rank, calculated_at)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-                    ON CONFLICT(month, currency) DO UPDATE SET
-                        score_rate = excluded.score_rate,
-                        score_cpi = excluded.score_cpi,
-                        score_pmi = excluded.score_pmi,
-                        total_score = excluded.total_score,
-                        rank = excluded.rank,
-                        calculated_at = excluded.calculated_at
-                """, (
-                    month,
-                    currency,
-                    score_data.get("score_rate"),
-                    score_data.get("score_cpi"),
-                    score_data.get("score_pmi"),
-                    score_data["total_score"],
-                    score_data["rank"],
-                    datetime.utcnow().isoformat()
-                ))
-            
-            self.conn.commit()
-            
-            if config.DEBUG:
-                print(f"[DB] {len(scores)} scores saved for {month}")
+            with self._lock:
+                cursor = self.conn.cursor()
+                for currency, score_data in scores.items():
+                    cursor.execute("""
+                        INSERT INTO scores (month, currency, score_rate, score_cpi, score_pmi, total_score, rank, calculated_at)
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                        ON CONFLICT(month, currency) DO UPDATE SET
+                            score_rate = excluded.score_rate,
+                            score_cpi = excluded.score_cpi,
+                            score_pmi = excluded.score_pmi,
+                            total_score = excluded.total_score,
+                            rank = excluded.rank,
+                            calculated_at = excluded.calculated_at
+                    """, (
+                        month,
+                        currency,
+                        score_data.get("score_rate"),
+                        score_data.get("score_cpi"),
+                        score_data.get("score_pmi"),
+                        score_data["total_score"],
+                        score_data["rank"],
+                        datetime.now(timezone.utc).isoformat()
+                    ))
                 
+                self.conn.commit()
+                
+                if config.DEBUG:
+                    print(f"[DB] {len(scores)} scores saved for {month}")
+                    
         except sqlite3.Error as e:
             self.conn.rollback()
             raise RuntimeError(f"Failed to save scores for {month}: {e}")
@@ -443,25 +534,26 @@ class Database:
         if status not in ("ACTIVE", "NO_TRADE", "CLOSED"):
             raise ValueError(f"Invalid status: {status}")
         
-        cursor = self.conn.cursor()
         try:
-            cursor.execute("""
-                INSERT INTO signals (generated_at, month, strongest, weakest, gap, signal, status)
-                VALUES (?, ?, ?, ?, ?, ?, ?)
-                ON CONFLICT(month) DO UPDATE SET
-                    generated_at = excluded.generated_at,
-                    strongest = excluded.strongest,
-                    weakest = excluded.weakest,
-                    gap = excluded.gap,
-                    signal = excluded.signal,
-                    status = excluded.status
-            """, (datetime.utcnow().isoformat(), month, strongest, weakest, gap, signal, status))
-            
-            self.conn.commit()
-            
-            if config.DEBUG:
-                print(f"[DB] Signal saved for {month}: {signal} (status={status})")
+            with self._lock:
+                cursor = self.conn.cursor()
+                cursor.execute("""
+                    INSERT INTO signals (generated_at, month, strongest, weakest, gap, signal, status)
+                    VALUES (?, ?, ?, ?, ?, ?, ?)
+                    ON CONFLICT(month) DO UPDATE SET
+                        generated_at = excluded.generated_at,
+                        strongest = excluded.strongest,
+                        weakest = excluded.weakest,
+                        gap = excluded.gap,
+                        signal = excluded.signal,
+                        status = excluded.status
+                """, (datetime.now(timezone.utc).isoformat(), month, strongest, weakest, gap, signal, status))
                 
+                self.conn.commit()
+                
+                if config.DEBUG:
+                    print(f"[DB] Signal saved for {month}: {signal} (status={status})")
+                    
         except sqlite3.Error as e:
             self.conn.rollback()
             raise RuntimeError(f"Failed to save signal for {month}: {e}")

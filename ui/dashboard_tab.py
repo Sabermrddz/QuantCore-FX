@@ -36,6 +36,10 @@ class DashboardTab(QWidget):
     # Signal to request FRED fetch
     fetch_rates_requested = pyqtSignal()
     
+    # Signal emitted when new signal generated (for Layer 2 confluence)
+    # Emits: strongest, weakest, gap, directional_bias_matrix
+    signal_generated = pyqtSignal(str, str, float, dict)
+    
     def __init__(self, db: Database):
         """
         Initialize Dashboard tab.
@@ -152,6 +156,17 @@ class DashboardTab(QWidget):
                 signal_text = signal_data["signal"]
                 gap = signal_data["gap"]
                 status = signal_data["status"]
+                strongest = signal_data.get("strongest")
+                weakest = signal_data.get("weakest")
+
+                # Build directional bias matrix and emit to confluence tab
+                if strongest and weakest:
+                    scores = self.db.get_month_scores(self.current_month)
+                    if scores:
+                        bias_matrix = scorer.build_directional_bias_matrix(scores)
+                    else:
+                        bias_matrix = {}
+                    self.signal_generated.emit(strongest, weakest, gap, bias_matrix)
                 
                 # Update signal label
                 self.signal_label.setText(signal_text)

@@ -20,6 +20,7 @@ from PyQt5.QtCore import Qt, pyqtSignal, QThread
 from PyQt5.QtGui import QFont
 from typing import Dict, Optional
 import config
+from data_feeder import Mt5DataFeeder
 from fred_client import FredClient
 import os
 from pathlib import Path
@@ -48,6 +49,31 @@ class FredTestWorker(QThread):
             self.test_complete.emit(False, f"✗ Connection failed: {str(e)}")
 
 
+class Mt5TestWorker(QThread):
+    """Background thread for testing MT5 connection."""
+
+    test_complete = pyqtSignal(bool, str)
+
+    def __init__(self, symbol_suffix: str):
+        super().__init__()
+        self.symbol_suffix = symbol_suffix
+
+    def run(self):
+        try:
+            feeder = Mt5DataFeeder(symbol_suffix=self.symbol_suffix)
+            if feeder.initialize():
+                price = feeder.get_current_price("EUR_USD")
+                if price:
+                    self.test_complete.emit(True, f"✓ Connected! EUR/USD bid={price['bid']:.5f} ask={price['ask']:.5f}")
+                else:
+                    self.test_complete.emit(True, "✓ Connected! (no EUR/USD tick data)")
+                feeder.shutdown()
+            else:
+                self.test_complete.emit(False, f"✗ {feeder.last_error}")
+        except Exception as e:
+            self.test_complete.emit(False, f"✗ {e}")
+
+
 class SettingsTab(QWidget):
     """Settings and configuration tab."""
     
@@ -57,7 +83,7 @@ class SettingsTab(QWidget):
     def __init__(self):
         """Initialize Settings tab."""
         super().__init__()
-        self.env_path = Path(__file__).parent.parent.parent / ".env"
+        self.env_path = Path(__file__).parent.parent / ".env"
         
         self._init_ui()
         self._load_settings()
@@ -98,6 +124,32 @@ class SettingsTab(QWidget):
         
         api_group.setLayout(api_layout)
         layout.addWidget(api_group)
+        layout.addSpacing(10)
+        
+        # ====== MetaTrader 5 Connection ======
+        mt5_group = QGroupBox("MetaTrader 5 (Layer 2 Forex Data)")
+        mt5_layout = QVBoxLayout()
+        mt5_layout.addWidget(QLabel(
+            "MT5 provides real-time forex data from your local MetaTrader 5 terminal.\n"
+            "Ensure MT5 is installed and running with a demo/live account.\n"
+            "Symbol suffix is used by some brokers (e.g., .m for OANDA MT5)."
+        ))
+        suffix_layout = QHBoxLayout()
+        suffix_layout.addWidget(QLabel("Symbol Suffix:"))
+        self.mt5_suffix_input = QLineEdit()
+        self.mt5_suffix_input.setPlaceholderText("e.g., .m (leave empty if unsure)")
+        suffix_layout.addWidget(self.mt5_suffix_input)
+        mt5_layout.addLayout(suffix_layout)
+        mt5_status_layout = QHBoxLayout()
+        self.mt5_status_label = QLabel("Status: Not tested")
+        self.mt5_status_label.setStyleSheet("color: #95a5a6; font-style: italic;")
+        mt5_status_layout.addWidget(self.mt5_status_label)
+        mt5_test_btn = QPushButton("Test Connection")
+        mt5_test_btn.clicked.connect(self._test_mt5_connection)
+        mt5_status_layout.addWidget(mt5_test_btn)
+        mt5_layout.addLayout(mt5_status_layout)
+        mt5_group.setLayout(mt5_layout)
+        layout.addWidget(mt5_group)
         layout.addSpacing(10)
         
         # ====== Central Bank Targets ======
@@ -267,6 +319,9 @@ class SettingsTab(QWidget):
             api_key = env_vars.get('FRED_API_KEY', '')
             self.api_key_input.setText(api_key)
             
+            mt5_suffix = env_vars.get('MT5_SYMBOL_SUFFIX', '')
+            self.mt5_suffix_input.setText(mt5_suffix)
+            
             # Load weights (convert from decimal to percentage)
             weight_rate = float(env_vars.get('WEIGHT_RATE', config.WEIGHT_RATE)) * 100
             weight_cpi = float(env_vars.get('WEIGHT_CPI', config.WEIGHT_CPI)) * 100
@@ -332,7 +387,24 @@ class SettingsTab(QWidget):
             self.test_status.setStyleSheet("color: #27ae60; font-weight: bold;")
         else:
             self.test_status.setStyleSheet("color: #e74c3c; font-weight: bold;")
-    
+
+    def _test_mt5_connection(self):
+        """Test MT5 connection in background."""
+        suffix = self.mt5_suffix_input.text().strip()
+        self.mt5_status_label.setText("Testing connection...")
+        self.mt5_status_label.setStyleSheet("color: #95a5a6; font-style: italic;")
+        self.mt5_test_worker = Mt5TestWorker(suffix)
+        self.mt5_test_worker.test_complete.connect(self._on_mt5_test_complete)
+        self.mt5_test_worker.start()
+
+    def _on_mt5_test_complete(self, success: bool, message: str):
+        """Handle MT5 test completion."""
+        self.mt5_status_label.setText(message)
+        if success:
+            self.mt5_status_label.setStyleSheet("color: #27ae60; font-weight: bold;")
+        else:
+            self.mt5_status_label.setStyleSheet("color: #e74c3c; font-weight: bold;")
+
     def _save_settings(self):
         """Save settings to .env file."""
         try:
@@ -351,6 +423,7 @@ class SettingsTab(QWidget):
             
             # Prepare new .env content
             api_key = self.api_key_input.text().strip()
+            mt5_suffix = self.mt5_suffix_input.text().strip()
             weight_rate = self.weight_rate_spin.value() / 100
             weight_cpi = self.weight_cpi_spin.value() / 100
             weight_pmi = self.weight_pmi_spin.value() / 100
@@ -358,6 +431,7 @@ class SettingsTab(QWidget):
             auto_fetch = "true" if self.auto_fetch_check.isChecked() else "false"
             
             env_content = f"""FRED_API_KEY={api_key}
+MT5_SYMBOL_SUFFIX={mt5_suffix}
 DB_PATH=apex.db
 MIN_GAP={min_gap}
 WEIGHT_RATE={weight_rate:.2f}
@@ -392,6 +466,8 @@ DEBUG=false
         )
         
         if reply == QMessageBox.Yes:
+            self.api_key_input.clear()
+            self.mt5_suffix_input.clear()
             self.weight_rate_spin.setValue(50)
             self.weight_cpi_spin.setValue(30)
             self.weight_pmi_spin.setValue(20)

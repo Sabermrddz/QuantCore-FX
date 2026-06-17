@@ -12,8 +12,7 @@ This will generate:
 """
 
 import pandas as pd
-from openpyxl import Workbook
-from openpyxl.styles import Font, PatternFill, Alignment
+
 import config
 from datetime import datetime
 

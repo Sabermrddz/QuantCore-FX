@@ -10,18 +10,20 @@ Requirements:
     - Python 3.10+
     - PyQt5 5.15+
     - requests 2.31+
-    - pandas 2.0+ (optional, for data)
+    - pandas 2.0+
     - python-dotenv 1.0+
+    - openpyxl 3.1+
 
 Installation:
-    pip install PyQt5 requests python-dotenv
+    pip install -r requirements.txt
 
 First run:
     1. Ensure .env file exists with FRED_API_KEY set
-    2. Run: python main.py
-    3. App initializes database with schema
-    4. Auto-fetches rates from FRED if AUTO_FETCH_RATES_ON_STARTUP=true
-    5. Ready for manual CPI/PMI entry
+    2. (Optional for Layer 2) MetaTrader 5 terminal running
+    3. Run: python main.py
+    4. App initializes database with schema
+    5. Auto-fetches rates from FRED if AUTO_FETCH_RATES_ON_STARTUP=true
+    6. Ready for manual CPI/PMI entry
 """
 
 import sys
