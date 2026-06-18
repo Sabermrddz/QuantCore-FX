@@ -54,8 +54,264 @@ def main():
         # Create QApplication
         app = QApplication(sys.argv)
         
-        # Set application-wide stylesheet (optional)
+        # Set Fusion style
         app.setStyle('Fusion')
+
+        # Global professional stylesheet
+        app.setStyleSheet(f"""
+            /*****************************************************************
+             * APEX Professional Trading System — Global Stylesheet
+             *****************************************************************/
+
+            /* ----- Root / Background ----- */
+            QMainWindow {{
+                background-color: #f0f2f5;
+            }}
+            QWidget {{
+                font-family: "Segoe UI", "Arial", sans-serif;
+                font-size: 13px;
+                color: #2c3e50;
+            }}
+
+            /* ----- Tab Widget (Navigation Bar) ----- */
+            QTabWidget::pane {{
+                border: none;
+                background: #f0f2f5;
+                top: -1px;
+            }}
+            QTabBar::tab {{
+                background: #2c3e50;
+                color: #95a5a6;
+                padding: 10px 22px;
+                margin-right: 2px;
+                border-top-left-radius: 6px;
+                border-top-right-radius: 6px;
+                font-size: 13px;
+                font-weight: 600;
+            }}
+            QTabBar::tab:selected {{
+                background: #f0f2f5;
+                color: #2c3e50;
+                border-bottom: 2px solid #3498db;
+            }}
+            QTabBar::tab:hover:!selected {{
+                background: #34495e;
+                color: #ecf0f1;
+            }}
+
+            /* ----- Cards (QFrame) ----- */
+            QFrame#card {{
+                background-color: #ffffff;
+                border: 1px solid #e0e4e8;
+                border-radius: 10px;
+                padding: 18px;
+            }}
+            QFrame#card:hover {{
+                border-color: #c0c8d0;
+            }}
+            QFrame#statusCard {{
+                background: qlineargradient(x1:0, y1:0, x2:1, y2:0,
+                    stop:0 #ffffff, stop:1 #f8f9fb);
+                border: 1px solid #e0e4e8;
+                border-radius: 10px;
+                padding: 20px;
+            }}
+
+            /* ----- Labels ----- */
+            QLabel {{
+                color: #2c3e50;
+            }}
+            QLabel[heading="true"] {{
+                font-size: 16px;
+                font-weight: 700;
+                color: #1a1a2e;
+                padding-bottom: 4px;
+            }}
+            QLabel[subheading="true"] {{
+                font-size: 13px;
+                font-weight: 600;
+                color: #7f8c8d;
+                letter-spacing: 1px;
+            }}
+            QLabel[value="true"] {{
+                font-size: 28px;
+                font-weight: 700;
+            }}
+
+            /* ----- Tables ----- */
+            QTableWidget {{
+                background-color: #ffffff;
+                border: 1px solid #e0e4e8;
+                border-radius: 8px;
+                gridline-color: #f0f2f5;
+                selection-background-color: #ebf5fb;
+                selection-color: #2c3e50;
+                padding: 4px;
+            }}
+            QTableWidget::item {{
+                padding: 6px 10px;
+                border-bottom: 1px solid #f0f2f5;
+            }}
+            QTableWidget::item:selected {{
+                background-color: #ebf5fb;
+                color: #2c3e50;
+            }}
+            QHeaderView::section {{
+                background-color: #f8f9fb;
+                color: #7f8c8d;
+                font-weight: 600;
+                font-size: 12px;
+                text-transform: uppercase;
+                padding: 8px 10px;
+                border: none;
+                border-bottom: 2px solid #e0e4e8;
+            }}
+
+            /* ----- Buttons ----- */
+            QPushButton {{
+                background-color: #3498db;
+                color: #ffffff;
+                border: none;
+                border-radius: 6px;
+                padding: 8px 20px;
+                font-size: 13px;
+                font-weight: 600;
+            }}
+            QPushButton:hover {{
+                background-color: #2980b9;
+            }}
+            QPushButton:pressed {{
+                background-color: #2471a3;
+            }}
+            QPushButton:disabled {{
+                background-color: #bdc3c7;
+                color: #95a5a6;
+            }}
+
+            QPushButton#success {{
+                background-color: #27ae60;
+            }}
+            QPushButton#success:hover {{
+                background-color: #229954;
+            }}
+            QPushButton#success:disabled {{
+                background-color: #bdc3c7;
+            }}
+
+            QPushButton#danger {{
+                background-color: #e74c3c;
+            }}
+            QPushButton#danger:hover {{
+                background-color: #cb4335;
+            }}
+
+            QPushButton#secondary {{
+                background-color: #95a5a6;
+            }}
+            QPushButton#secondary:hover {{
+                background-color: #7f8c8d;
+            }}
+
+            /* ----- Progress Bar ----- */
+            QProgressBar {{
+                background-color: #ecf0f1;
+                border: none;
+                border-radius: 6px;
+                height: 18px;
+                text-align: center;
+                font-size: 12px;
+                font-weight: 600;
+                color: #2c3e50;
+            }}
+            QProgressBar::chunk {{
+                background: qlineargradient(x1:0, y1:0, x2:1, y2:0,
+                    stop:0 #3498db, stop:1 #2ecc71);
+                border-radius: 6px;
+            }}
+
+            /* ----- Combo Box / Spinner ----- */
+            QComboBox {{
+                background-color: #ffffff;
+                border: 1px solid #d5d8dc;
+                border-radius: 6px;
+                padding: 6px 12px;
+                min-height: 20px;
+            }}
+            QComboBox:hover {{
+                border-color: #3498db;
+            }}
+            QComboBox::drop-down {{
+                border: none;
+                width: 24px;
+            }}
+            QDoubleSpinBox, QSpinBox, QLineEdit {{
+                background-color: #ffffff;
+                border: 1px solid #d5d8dc;
+                border-radius: 6px;
+                padding: 6px 10px;
+                min-height: 20px;
+            }}
+            QDoubleSpinBox:focus, QSpinBox:focus, QLineEdit:focus {{
+                border-color: #3498db;
+            }}
+
+            /* ----- Group Box ----- */
+            QGroupBox {{
+                font-size: 14px;
+                font-weight: 700;
+                color: #2c3e50;
+                border: 1px solid #e0e4e8;
+                border-radius: 10px;
+                margin-top: 12px;
+                padding: 20px 16px 16px 16px;
+            }}
+            QGroupBox::title {{
+                subcontrol-origin: margin;
+                subcontrol-position: top left;
+                padding: 4px 12px;
+                background-color: #f0f2f5;
+                border-radius: 4px;
+                margin-left: 10px;
+            }}
+
+            /* ----- Scroll Area ----- */
+            QScrollArea {{
+                border: none;
+                background: transparent;
+            }}
+
+            /* ----- Check Box ----- */
+            QCheckBox {{
+                spacing: 8px;
+            }}
+            QCheckBox::indicator {{
+                width: 18px;
+                height: 18px;
+                border-radius: 4px;
+                border: 2px solid #bdc3c7;
+            }}
+            QCheckBox::indicator:checked {{
+                background-color: #3498db;
+                border-color: #3498db;
+            }}
+
+            /* ----- Tooltip ----- */
+            QToolTip {{
+                background-color: #2c3e50;
+                color: #ffffff;
+                border: none;
+                padding: 8px 12px;
+                border-radius: 6px;
+                font-size: 12px;
+            }}
+
+            /* ----- Status Bar ----- */
+            QStatusBar {{
+                background-color: #2c3e50;
+                color: #ecf0f1;
+                font-size: 12px;
+            }}
+        """)
         
         # Create and show main window
         window = MainWindow()

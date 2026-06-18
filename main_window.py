@@ -21,7 +21,6 @@ Responsibilities:
 
 from PyQt5.QtWidgets import QMainWindow, QTabWidget, QMessageBox
 from PyQt5.QtCore import QThread, pyqtSignal
-from PyQt5.QtGui import QFont
 from typing import Dict, Optional
 import config
 from database import Database
@@ -32,6 +31,7 @@ from ui.layer2_monitor_tab import Layer2MonitorTab
 from ui.confluence_tab import ConfluenceSignalsTab
 from ui.history_tab import HistoryTab
 from ui.settings_tab import SettingsTab
+from fred_client import FredClient
 
 
 class FredFetchWorker(QThread):
@@ -98,7 +98,8 @@ class MainWindow(QMainWindow):
             raise
         
         # Initialize Layer 2 components
-        self.tech_analyzer = TechnicalAnalyzer(lookback=config.Z_SCORE_LOOKBACK)
+        bars = config.TIMEFRAMES[config.DEFAULT_TIMEFRAME]["bars"]
+        self.tech_analyzer = TechnicalAnalyzer(lookback=bars)
         
         # UI components
         self.dashboard_tab = None
@@ -149,10 +150,6 @@ class MainWindow(QMainWindow):
         
         # Set main widget
         self.setCentralWidget(tabs)
-        
-        # Style tabs
-        tab_font = QFont("Arial", 11)
-        tabs.setFont(tab_font)
     
     def _connect_signals(self):
         """Connect inter-tab signals."""

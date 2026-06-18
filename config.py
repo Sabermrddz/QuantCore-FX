@@ -15,6 +15,7 @@ Responsibilities:
 """
 
 import os
+import logging
 from dotenv import load_dotenv
 from pathlib import Path
 
@@ -159,6 +160,23 @@ def validate_config():
 DEBUG = os.getenv("DEBUG", "false").lower() == "true"
 
 # ============================================================================
+# Logging Configuration (Phase 5)
+# ============================================================================
+LOG_LEVEL = logging.DEBUG if DEBUG else logging.INFO
+LOG_FORMAT = "%(asctime)s [%(levelname)s] %(name)s: %(message)s"
+LOG_FILE = os.getenv("LOG_FILE", "apex.log")
+
+logging.basicConfig(
+    level=LOG_LEVEL,
+    format=LOG_FORMAT,
+    handlers=[
+        logging.FileHandler(LOG_FILE),
+        logging.StreamHandler(),
+    ],
+)
+logger = logging.getLogger("apex")
+
+# ============================================================================
 # UI Configuration
 # ============================================================================
 APP_TITLE = "APEX — Currency Strength Engine"
@@ -195,13 +213,25 @@ MT5_SYMBOL_SUFFIX = os.getenv("MT5_SYMBOL_SUFFIX", "")
 
 # Technical Analysis Settings
 Z_SCORE_THRESHOLD = float(os.getenv("Z_SCORE_THRESHOLD", 2.0))  # Overbought/oversold level
-Z_SCORE_LOOKBACK = int(os.getenv("Z_SCORE_LOOKBACK", 288))  # Bars for Z-score calculation (288 M5 bars = 24 hours)
 
-# Historical Bar Configuration (Task 1.1 — Multi-hour anchored lookback)
-BAR_TIMEFRAME = os.getenv("BAR_TIMEFRAME", "M5")  # M1 or M5 bar intervals
-BAR_LOOKBACK_HOURS = int(os.getenv("BAR_LOOKBACK_HOURS", 48))  # Hours of historical data
-BAR_LOOKBACK_BARS = int(os.getenv("BAR_LOOKBACK_BARS", 288))  # Total bars (288 M5 bars = 24h)
+# Multi-timeframe configuration
+TIMEFRAMES = {
+    "M5":  {"interval": "5min",  "bars": 288, "label": "5 min"},
+    "M15": {"interval": "15min", "bars": 96,  "label": "15 min"},
+    "H1":  {"interval": "1h",    "bars": 48,  "label": "1 hour"},
+    "H4":  {"interval": "4h",    "bars": 24,  "label": "4 hour"},
+}
+DEFAULT_TIMEFRAME = os.getenv("DEFAULT_TIMEFRAME", "M15")
+
+# Historical bar config (backward compat)
+BAR_TIMEFRAME = os.getenv("BAR_TIMEFRAME", "M5")
+BAR_LOOKBACK_HOURS = int(os.getenv("BAR_LOOKBACK_HOURS", 48))
 HISTORICAL_POLL_INTERVAL = int(os.getenv("HISTORICAL_POLL_INTERVAL", 300))  # 5 min in seconds
+
+# SL/TP based on ATR
+SL_ATR_PERIOD = 14
+SL_ATR_MULTIPLIER = float(os.getenv("SL_ATR_MULTIPLIER", "2.0"))
+TRADE_RR_RATIO = float(os.getenv("TRADE_RR_RATIO", "1.4"))
 
 # Session Detection
 SESSION_TOKYO_OPEN = 0    # 00:00 UTC
@@ -222,16 +252,10 @@ MAX_PORTFOLIO_LEVERAGE = float(os.getenv("MAX_PORTFOLIO_LEVERAGE", 2.0))  # Max 
 USE_GRID_HEDGING = os.getenv("USE_GRID_HEDGING", "true").lower() == "true"
 GRID_LEVELS = int(os.getenv("GRID_LEVELS", 3))  # Number of hedging levels
 
-# ============================================================================
-# Mock Data Feeder Configuration (previously magic numbers)
-# ============================================================================
-MOCK_DRIFT = float(os.getenv("MOCK_DRIFT", 0.0001))
-MOCK_THETA = float(os.getenv("MOCK_THETA", 0.02))
-MOCK_NOISE_STD = float(os.getenv("MOCK_NOISE_STD", 0.0008))
-MOCK_SEASONAL_AMP = float(os.getenv("MOCK_SEASONAL_AMP", 0.0003))
-MOCK_TICK_NOISE = float(os.getenv("MOCK_TICK_NOISE", 0.0002))
-MOCK_BID_ASK_SPREAD = float(os.getenv("MOCK_BID_ASK_SPREAD", 0.0001))
-MOCK_HISTORICAL_DAILY_NOISE = float(os.getenv("MOCK_HISTORICAL_DAILY_NOISE", 0.01))
+# Live Execution (Phase 4) — OFF by default
+LIVE_TRADING_ENABLED = os.getenv("LIVE_TRADING_ENABLED", "false").lower() == "true"
+MAX_DAILY_LOSS_PCT = float(os.getenv("MAX_DAILY_LOSS_PCT", 0.05))
+MAX_BASKET_EXPOSURE_PCT = float(os.getenv("MAX_BASKET_EXPOSURE_PCT", 0.20))
 
 if DEBUG:
     print("[CONFIG] Debug mode enabled")

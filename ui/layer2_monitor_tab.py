@@ -1,15 +1,15 @@
 from PyQt5.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QTableWidget, QTableWidgetItem,
-    QPushButton, QComboBox, QCheckBox, QMessageBox, QStatusBar, QProgressBar,
+    QPushButton, QComboBox, QCheckBox, QMessageBox,
     QHeaderView
 )
 from PyQt5.QtCore import Qt, QThread, pyqtSignal, QTimer
-from PyQt5.QtGui import QColor, QFont, QBrush
+from PyQt5.QtGui import QColor, QFont
 from typing import Dict, Optional
 from datetime import datetime, timezone
 import config
 from layer2_technical import TechnicalAnalyzer
-from data_feeder import Mt5DataFeeder, MockDataFeeder
+from data_feeder import Mt5DataFeeder
 from currency_strength_matrix import CurrencyStrengthMatrix
 
 
@@ -75,43 +75,57 @@ class Layer2MonitorTab(QWidget):
     def _init_ui(self):
         """Build UI layout."""
         layout = QVBoxLayout()
+        layout.setSpacing(12)
 
         # ====== Connection Panel ======
         connection_layout = QHBoxLayout()
 
         connection_layout.addWidget(QLabel("Data Source:"))
         self.source_combo = QComboBox()
-        self.source_combo.addItems(["Mock (Test)", "MT5 (Live)"])
+        self.source_combo.addItems(["MT5 (Live)"])
         self.source_combo.setCurrentIndex(0)
         connection_layout.addWidget(self.source_combo)
+
+        connection_layout.addWidget(QLabel("TF:"))
+        self.tf_combo = QComboBox()
+        for tf_key in config.TIMEFRAMES:
+            self.tf_combo.addItem(config.TIMEFRAMES[tf_key]["label"], tf_key)
+        self.tf_combo.setCurrentText(config.TIMEFRAMES[config.DEFAULT_TIMEFRAME]["label"])
+        self.tf_combo.currentIndexChanged.connect(self._on_timeframe_changed)
+        connection_layout.addWidget(self.tf_combo)
 
         self.connect_btn = QPushButton("Connect")
         self.connect_btn.clicked.connect(self._on_connect_clicked)
         connection_layout.addWidget(self.connect_btn)
 
+        # Status dot indicator
+        self.status_dot = QLabel("●")
+        self.status_dot.setStyleSheet("color: #e74c3c; font-size: 18px;")
+        connection_layout.addWidget(self.status_dot)
+
         self.status_label = QLabel("Disconnected")
-        self.status_label.setStyleSheet("color: red; font-weight: bold;")
+        self.status_label.setStyleSheet("color: #e74c3c; font-weight: 600;")
         connection_layout.addWidget(self.status_label)
 
         connection_layout.addStretch()
         layout.addLayout(connection_layout)
-        layout.addSpacing(10)
 
         # ====== Active Session Indicator (Task 4.1) ======
         session_layout = QHBoxLayout()
         session_layout.addWidget(QLabel("Active Session:"))
         self.session_label = QLabel("—")
         self.session_label.setStyleSheet(
-            "font-weight: bold; font-size: 14px; padding: 2px 8px; "
-            "background-color: #ecf0f1; border-radius: 4px;"
+            "font-weight: 700; font-size: 14px; padding: 4px 14px; "
+            "background-color: #ecf0f1; border-radius: 12px;"
         )
         session_layout.addWidget(self.session_label)
         session_layout.addStretch()
         layout.addLayout(session_layout)
-        layout.addSpacing(5)
 
         # ====== Z-Score Table ======
-        layout.addWidget(QLabel("Technical Analysis — All Pairs"))
+        heading = QLabel("Technical Analysis — All Pairs")
+        heading.setProperty("heading", True)
+        layout.addWidget(heading)
 
         self.tech_table = QTableWidget()
         self.tech_table.setColumnCount(7)
@@ -120,48 +134,52 @@ class Layer2MonitorTab(QWidget):
         ])
         self.tech_table.setRowCount(28)
         self.tech_table.setAlternatingRowColors(True)
-        self.tech_table.horizontalHeader().setStretchLastSection(True)
+        header = self.tech_table.horizontalHeader()
+        for c in range(7):
+            header.setSectionResizeMode(c, QHeaderView.Stretch)
 
         layout.addWidget(self.tech_table)
-        layout.addSpacing(10)
 
         # ====== Alerts Panel ======
         alerts_layout = QHBoxLayout()
 
-        alerts_layout.addWidget(QLabel("Overbought Pairs:"))
+        alerts_layout.addWidget(QLabel("Overbought:"))
         self.overbought_label = QLabel("—")
-        self.overbought_label.setStyleSheet("color: #e74c3c; font-weight: bold;")
+        self.overbought_label.setStyleSheet("color: #e74c3c; font-weight: 700;")
         alerts_layout.addWidget(self.overbought_label)
 
         alerts_layout.addSpacing(20)
 
-        alerts_layout.addWidget(QLabel("Oversold Pairs:"))
+        alerts_layout.addWidget(QLabel("Oversold:"))
         self.oversold_label = QLabel("—")
-        self.oversold_label.setStyleSheet("color: #27ae60; font-weight: bold;")
+        self.oversold_label.setStyleSheet("color: #27ae60; font-weight: 700;")
         alerts_layout.addWidget(self.oversold_label)
 
         alerts_layout.addStretch()
         layout.addLayout(alerts_layout)
-        layout.addSpacing(10)
 
         # ====== Currency Strength Matrix ======
-        matrix_group = QWidget()
-        matrix_layout = QVBoxLayout(matrix_group)
-        matrix_layout.setContentsMargins(0, 0, 0, 0)
+        matrix_heading = QLabel("Currency Strength Matrix (S.A.T.O.R.I.)")
+        matrix_heading.setProperty("heading", True)
+        layout.addWidget(matrix_heading)
 
-        matrix_layout.addWidget(QLabel("Currency Strength Matrix (S.A.T.O.R.I.)"))
         self.matrix_cross_label = QLabel("Matrix Cross: —")
-        self.matrix_cross_label.setStyleSheet("font-weight: bold; font-size: 13px; color: #2c3e50;")
-        matrix_layout.addWidget(self.matrix_cross_label)
+        self.matrix_cross_label.setStyleSheet("font-weight: 700; font-size: 14px;")
+        layout.addWidget(self.matrix_cross_label)
 
         self.divergence_label = QLabel("Divergence Gap: 0.0")
-        self.divergence_label.setStyleSheet("color: #7f8c8d;")
-        matrix_layout.addWidget(self.divergence_label)
+        self.divergence_label.setStyleSheet("color: #7f8c8d; font-size: 12px;")
+        layout.addWidget(self.divergence_label)
 
+        alert_row = QHBoxLayout()
         self.strong_alert = QLabel("")
-        matrix_layout.addWidget(self.strong_alert)
+        self.strong_alert.setStyleSheet("color: #27ae60; font-weight: 600;")
+        alert_row.addWidget(self.strong_alert)
         self.weak_alert = QLabel("")
-        matrix_layout.addWidget(self.weak_alert)
+        self.weak_alert.setStyleSheet("color: #e74c3c; font-weight: 600;")
+        alert_row.addWidget(self.weak_alert)
+        alert_row.addStretch()
+        layout.addLayout(alert_row)
 
         self.matrix_table = QTableWidget()
         self.matrix_table.setColumnCount(5)
@@ -169,14 +187,13 @@ class Layer2MonitorTab(QWidget):
             "Rank", "Currency", "Strength Z", "Direction", "Session SRV"
         ])
         self.matrix_table.setRowCount(8)
-        self.matrix_table.setMaximumHeight(240)
-        self.matrix_table.horizontalHeader().setStretchLastSection(True)
-        matrix_layout.addWidget(self.matrix_table)
+        self.matrix_table.setMaximumHeight(220)
+        m_header = self.matrix_table.horizontalHeader()
+        for c in range(5):
+            m_header.setSectionResizeMode(c, QHeaderView.Stretch)
+        layout.addWidget(self.matrix_table)
 
-        layout.addWidget(matrix_group)
-        layout.addSpacing(10)
-
-        # ====== Refresh Button ======
+        # ====== Controls ======
         button_layout = QHBoxLayout()
 
         self.auto_refresh_check = QCheckBox("Auto-refresh (every 1s)")
@@ -184,6 +201,7 @@ class Layer2MonitorTab(QWidget):
         button_layout.addWidget(self.auto_refresh_check)
 
         refresh_btn = QPushButton("Refresh Now")
+        refresh_btn.setObjectName("secondary")
         refresh_btn.clicked.connect(self._refresh_display)
         button_layout.addWidget(refresh_btn)
 
@@ -196,13 +214,13 @@ class Layer2MonitorTab(QWidget):
         self.refresh_timer = QTimer()
         self.refresh_timer.timeout.connect(self._refresh_display)
 
+        self._debounce_timer = QTimer()
+        self._debounce_timer.setSingleShot(True)
+        self._debounce_timer.timeout.connect(self._refresh_display)
+
     def _setup_data_source(self):
         """Initialize data source."""
-        source = self.source_combo.currentText()
-        if "MT5" in source:
-            self.data_feeder = Mt5DataFeeder()
-        else:
-            self.data_feeder = MockDataFeeder()
+        self.data_feeder = Mt5DataFeeder()
 
     def _on_connect_clicked(self):
         """Handle connect button click."""
@@ -211,17 +229,82 @@ class Layer2MonitorTab(QWidget):
         else:
             self._connect()
 
+    def _on_timeframe_changed(self, idx: int):
+        tf_key = self.tf_combo.itemData(idx)
+        if tf_key:
+            self.tech_analyzer.set_timeframe(tf_key)
+            if self.connected and hasattr(self.data_feeder, 'USD_PAIRS'):
+                self._seed_historical_bars()
+
     def _seed_historical_bars(self):
-        """Seed the analyzer with 24h of historical M5 bar data for stable Z-scores."""
-        if hasattr(self.data_feeder, 'generate_mock_bars'):
-            bars = self.data_feeder.generate_mock_bars(n_bars=config.BAR_LOOKBACK_BARS)
-        elif hasattr(self.data_feeder, 'fetch_historical_closes_all_pairs'):
-            bars = self.data_feeder.fetch_historical_closes_all_pairs(
-                days=1, interval="5min"
-            )
-        else:
+        """Seed the analyzer with bar data at the selected timeframe.
+        Fetches only the 7 USD pairs and derives all cross rates.
+        """
+        if not hasattr(self.data_feeder, 'USD_PAIRS'):
             return
-        self.tech_analyzer.seed_bars(bars)
+
+        interval_map = {
+            "M5": "5min", "M15": "15min",
+            "H1": "1h", "H4": "4h",
+        }
+        tf_key = self.tech_analyzer.current_timeframe
+        interval = interval_map.get(tf_key, "15min")
+        outputsize = "full" if tf_key in ("M5", "M15") else "full"
+
+        usd_pairs = self.data_feeder.USD_PAIRS
+        raw_ohlc: dict[str, list[dict]] = {}
+        for pair in usd_pairs:
+            base, quote = pair.split("_")
+            candles = self.data_feeder.get_historical_candles(
+                from_currency=base, to_currency=quote,
+                interval=interval, outputsize=outputsize
+            )
+            if candles:
+                raw_ohlc[pair] = candles
+
+        if not raw_ohlc:
+            return
+
+        n_bars = min(len(c) for c in raw_ohlc.values())
+        if n_bars < 2:
+            return
+
+        currencies = config.CURRENCIES
+        derived_ohlc: dict[str, list[dict]] = {}
+        for base in currencies:
+            for quote in currencies:
+                if base == quote:
+                    continue
+                derived_ohlc[f"{base}_{quote}"] = []
+
+        for i in range(n_bars):
+            usd_rates: dict[str, float] = {"USD": 1.0}
+            for pair in usd_pairs:
+                base, quote = pair.split("_")
+                c = raw_ohlc[pair][i]
+                mid = c["close"]
+                if base == "USD":
+                    usd_rates[quote] = 1.0 / mid if mid else None
+                else:
+                    usd_rates[base] = mid
+            for base in currencies:
+                bv = usd_rates.get(base)
+                if bv is None:
+                    continue
+                for quote in currencies:
+                    if base == quote:
+                        continue
+                    qv = usd_rates.get(quote)
+                    if qv is not None:
+                        rate = bv / qv
+                        # Estimate OHLC for the cross pair
+                        derived_ohlc[f"{base}_{quote}"].append({
+                            "close": rate,
+                            "high": rate * 1.0003,
+                            "low": rate * 0.9997,
+                        })
+
+        self.tech_analyzer.seed_ohlc(derived_ohlc)
 
     def _connect(self):
         """Connect to data source."""
@@ -231,10 +314,6 @@ class Layer2MonitorTab(QWidget):
                 QMessageBox.warning(self, "Connection Error", f"Failed to connect to data source:\n{reason}")
                 return
 
-            # Seed bar_history with 24h of M5 close prices so Z-scores are
-            # anchored to a meaningful multi-hour frame, not tick noise.
-            self._seed_historical_bars()
-
             instruments = self.data_feeder.get_all_major_pairs()
             self.streamer_thread = DataStreamerThread(self.data_feeder, instruments)
             self.streamer_thread.price_updated.connect(self._on_price_received)
@@ -243,13 +322,19 @@ class Layer2MonitorTab(QWidget):
             self.streamer_thread.start()
 
             if self.auto_refresh_check.isChecked():
-                self.refresh_timer.start(1000)
+                self.refresh_timer.start(3000)
 
             self.connected = True
             self.connect_btn.setText("Disconnect")
+            self.connect_btn.setObjectName("danger")
+            self.connect_btn.style().unpolish(self.connect_btn)
+            self.connect_btn.style().polish(self.connect_btn)
+            self.status_dot.setStyleSheet("color: #27ae60; font-size: 18px;")
             self.status_label.setText("Connected")
-            self.status_label.setStyleSheet("color: #27ae60; font-weight: bold;")
+            self.status_label.setStyleSheet("color: #27ae60; font-weight: 600;")
             self._refresh_display()
+
+            QTimer.singleShot(0, self._seed_historical_bars)
 
         except Exception as e:
             QMessageBox.critical(self, "Error", f"Connection failed: {e}")
@@ -265,17 +350,22 @@ class Layer2MonitorTab(QWidget):
 
         self.connected = False
         self.connect_btn.setText("Connect")
+        self.connect_btn.setObjectName("")
+        self.connect_btn.style().unpolish(self.connect_btn)
+        self.connect_btn.style().polish(self.connect_btn)
+        self.status_dot.setStyleSheet("color: #e74c3c; font-size: 18px;")
         self.status_label.setText("Disconnected")
-        self.status_label.setStyleSheet("color: #e74c3c; font-weight: bold;")
+        self.status_label.setStyleSheet("color: #e74c3c; font-weight: 600;")
 
     def _on_price_received(self, price_data):
-        """Handle price update from data feeder."""
+        """Handle price update — just add data, debounce display refresh."""
         pair = price_data.get('pair')
         mid_price = price_data.get('mid')
 
         if pair and mid_price:
             self.tech_analyzer.add_price_data(pair, mid_price)
-            self._refresh_display()
+            if not self._debounce_timer.isActive():
+                self._debounce_timer.start(2000)
 
     def _on_connected(self, is_connected):
         """Handle connection status change."""
@@ -357,8 +447,6 @@ class Layer2MonitorTab(QWidget):
 
             self.overbought_label.setText(overbought_text)
             self.oversold_label.setText(oversold_text)
-
-            self.tech_table.resizeColumnsToContents()
 
             # ====== Currency Strength Matrix (persistent instance) ======
             current_prices = {}
@@ -465,8 +553,6 @@ class Layer2MonitorTab(QWidget):
                 if abs(srv) > 0.5:
                     srv_item.setBackground(QColor("#fff3e0"))
                 self.matrix_table.setItem(row, 4, srv_item)
-
-            self.matrix_table.resizeColumnsToContents()
 
         except Exception as e:
             print(f"[Layer2] Display error: {e}")

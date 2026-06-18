@@ -13,7 +13,7 @@ from PyQt5.QtWidgets import (
     QPushButton, QFrame, QMessageBox, QProgressBar
 )
 from PyQt5.QtCore import Qt, QTimer
-from PyQt5.QtGui import QColor, QFont, QBrush
+from PyQt5.QtGui import QColor, QFont
 from typing import Dict, Optional
 from datetime import datetime
 import config
@@ -31,7 +31,7 @@ class ConfluenceSignalsTab(QWidget):
         
         self.db = db
         self.tech_analyzer = tech_analyzer
-        self.confluence = ConfluenceFilter(tech_analyzer)
+        self.confluence = ConfluenceFilter(tech_analyzer, db=db)
         self.risk_mgmt = RiskManagementSystem(account_balance=config.ACCOUNT_BALANCE)
         self.signal_history = SignalHistory()
         
@@ -41,24 +41,25 @@ class ConfluenceSignalsTab(QWidget):
     def _init_ui(self):
         """Build UI layout."""
         layout = QVBoxLayout()
+        layout.setSpacing(12)
         
         # ====== Confluence Status Card ======
         card = self._build_status_card()
         layout.addWidget(card)
-        layout.addSpacing(15)
         
         # ====== Active Signals Table ======
-        layout.addWidget(QLabel("Confluence Signals (Layer 1 + Layer 2)"))
+        heading = QLabel("Confluence Signals (Layer 1 + Layer 2)")
+        heading.setProperty("heading", True)
+        layout.addWidget(heading)
         
         self.signals_table = QTableWidget()
         self.signals_table.setColumnCount(8)
         self.signals_table.setHorizontalHeaderLabels([
-            "Pair", "L1 Gap", "L2 Z-Score", "Status", "Confidence", "Entry Price", "Position Size", "Action"
+            "Pair", "Signal", "Entry", "SL", "TP", "L1 Gap", "Z-Score", "Confidence"
         ])
         self.signals_table.setRowCount(10)
         
         layout.addWidget(self.signals_table)
-        layout.addSpacing(15)
         
         # ====== Risk Management Panel ======
         risk_layout = QHBoxLayout()
@@ -66,22 +67,26 @@ class ConfluenceSignalsTab(QWidget):
         
         self.exposure_bar = QProgressBar()
         self.exposure_bar.setMaximum(100)
+        self.exposure_bar.setFormat("%v% exposed")
         risk_layout.addWidget(self.exposure_bar)
         
         self.leverage_label = QLabel("Leverage: —")
+        self.leverage_label.setStyleSheet("font-weight: 600; color: #5d6d7e;")
         risk_layout.addWidget(self.leverage_label)
         
+        risk_layout.addStretch()
         layout.addLayout(risk_layout)
-        layout.addSpacing(10)
         
         # ====== Control Buttons ======
         button_layout = QHBoxLayout()
         
         refresh_btn = QPushButton("Refresh Signals")
+        refresh_btn.setObjectName("secondary")
         refresh_btn.clicked.connect(self._refresh_signals)
         button_layout.addWidget(refresh_btn)
         
         execute_btn = QPushButton("Execute Top Signal")
+        execute_btn.setObjectName("success")
         execute_btn.clicked.connect(self._execute_signal)
         button_layout.addWidget(execute_btn)
         
@@ -94,70 +99,62 @@ class ConfluenceSignalsTab(QWidget):
     def _build_status_card(self) -> QFrame:
         """Build confluence status card."""
         card = QFrame()
-        card.setStyleSheet("""
-            QFrame {
-                background-color: #f8f9fa;
-                border: 2px solid #dee2e6;
-                border-radius: 8px;
-                padding: 15px;
-            }
-        """)
+        card.setObjectName("statusCard")
         
         layout = QVBoxLayout()
+        layout.setSpacing(8)
         
         title = QLabel("CONFLUENCE STATUS")
-        title.setFont(QFont("Arial", 10, QFont.Bold))
+        title.setProperty("subheading", True)
         layout.addWidget(title)
-        layout.addSpacing(5)
         
         # Layer 1 status
-        layer1_layout = QHBoxLayout()
-        layer1_layout.addWidget(QLabel("Layer 1 (Fundamental):"))
+        l1 = QHBoxLayout()
+        l1.addWidget(QLabel("Layer 1 (Fundamental):"))
         self.layer1_status_label = QLabel("No bias")
-        self.layer1_status_label.setFont(QFont("Arial", 11, QFont.Bold))
-        layer1_layout.addWidget(self.layer1_status_label)
-        layer1_layout.addStretch()
-        layout.addLayout(layer1_layout)
+        self.layer1_status_label.setStyleSheet("font-weight: 700;")
+        l1.addWidget(self.layer1_status_label)
+        l1.addStretch()
+        layout.addLayout(l1)
 
         # Directional Bias Matrix display
-        bias_layout = QHBoxLayout()
-        bias_layout.addWidget(QLabel("Macro Boundaries:"))
+        bl = QHBoxLayout()
+        bl.addWidget(QLabel("Macro Boundaries:"))
         self.bias_matrix_label = QLabel("No bias matrix")
-        self.bias_matrix_label.setStyleSheet("color: #8e44ad; font-size: 10px;")
-        bias_layout.addWidget(self.bias_matrix_label)
-        bias_layout.addStretch()
-        layout.addLayout(bias_layout)
+        self.bias_matrix_label.setStyleSheet("color: #8e44ad; font-size: 12px;")
+        bl.addWidget(self.bias_matrix_label)
+        bl.addStretch()
+        layout.addLayout(bl)
         
         # Layer 2 status
-        layer2_layout = QHBoxLayout()
-        layer2_layout.addWidget(QLabel("Layer 2 (Technical):"))
+        l2 = QHBoxLayout()
+        l2.addWidget(QLabel("Layer 2 (Technical):"))
         self.layer2_status_label = QLabel("No extreme")
         self.layer2_status_label.setStyleSheet("color: #95a5a6;")
-        layer2_layout.addWidget(self.layer2_status_label)
-        layer2_layout.addStretch()
-        layout.addLayout(layer2_layout)
+        l2.addWidget(self.layer2_status_label)
+        l2.addStretch()
+        layout.addLayout(l2)
         
         # Confluence result
-        conf_layout = QHBoxLayout()
-        conf_layout.addWidget(QLabel("Confluence Result:"))
-        self.confluence_status_label = QLabel("❌ NO CONFLUENCE")
-        self.confluence_status_label.setStyleSheet("color: #e74c3c; font-weight: bold;")
-        self.confluence_status_label.setFont(QFont("Arial", 12, QFont.Bold))
-        conf_layout.addWidget(self.confluence_status_label)
-        conf_layout.addStretch()
-        layout.addLayout(conf_layout)
+        cf = QHBoxLayout()
+        cf.addWidget(QLabel("Confluence Result:"))
+        self.confluence_status_label = QLabel("✕ NO CONFLUENCE")
+        self.confluence_status_label.setStyleSheet("color: #e74c3c; font-weight: 700; font-size: 14px;")
+        cf.addWidget(self.confluence_status_label)
+        cf.addStretch()
+        layout.addLayout(cf)
 
         # Matrix cross (S.A.T.O.R.I.)
-        matrix_layout = QHBoxLayout()
-        matrix_layout.addWidget(QLabel("Matrix Cross:"))
+        mx = QHBoxLayout()
+        mx.addWidget(QLabel("Matrix Cross:"))
         self.matrix_cross_label = QLabel("—")
-        self.matrix_cross_label.setStyleSheet("font-weight: bold; color: #8e44ad;")
-        matrix_layout.addWidget(self.matrix_cross_label)
-        matrix_layout.addStretch()
-        layout.addLayout(matrix_layout)
+        self.matrix_cross_label.setStyleSheet("font-weight: 700; color: #8e44ad;")
+        mx.addWidget(self.matrix_cross_label)
+        mx.addStretch()
+        layout.addLayout(mx)
 
         self.matrix_detail_label = QLabel("")
-        self.matrix_detail_label.setStyleSheet("color: #7f8c8d; font-size: 10px;")
+        self.matrix_detail_label.setStyleSheet("color: #7f8c8d; font-size: 11px;")
         layout.addWidget(self.matrix_detail_label)
 
         card.setLayout(layout)
@@ -170,16 +167,20 @@ class ConfluenceSignalsTab(QWidget):
         self._refresh_signals()
     
     def _refresh_signals(self):
-        """Refresh confluence signal display."""
+        """Refresh confluence signal display — single matrix build."""
         try:
-            report = self.confluence.get_confluence_report()
+            cf = self.confluence
 
-            # Update bias matrix display
-            bias = report.get("bias_matrix", {})
+            should_enter, reason, strength, sl_tp = cf.check_entry_confluence()
+
+            m = cf.matrix
+            mr = m.get_report() if m else {}
+            bias = getattr(cf, 'bias_matrix', {})
+
             if bias:
                 parts = []
                 for ccy in config.CURRENCIES:
-                    d = bias.get(ccy, "—")
+                    d = bias.get(ccy, {}).get("direction", "—")
                     if d == "STRONG":
                         parts.append(f"{ccy}↑")
                     elif d == "WEAK":
@@ -187,23 +188,18 @@ class ConfluenceSignalsTab(QWidget):
                     else:
                         parts.append(f"{ccy}—")
                 self.bias_matrix_label.setText("  ".join(parts))
-                self.bias_matrix_label.setStyleSheet("color: #8e44ad; font-size: 10px;")
             else:
                 self.bias_matrix_label.setText("No bias matrix")
-                self.bias_matrix_label.setStyleSheet("color: #95a5a6; font-size: 10px;")
 
-            # Update matrix cross display
-            mc = report.get("matrix_cross", "—")
-            gap = report.get("divergence_gap", 0)
-            has_div = report.get("has_matrix_divergence", False)
-            ranked = report.get("matrix_ranked", [])
+            mc = mr.get("matrix_cross", "—")
+            gap = mr.get("divergence_gap", 0)
+            has_div = mr.get("has_divergence", False)
+            ranked = mr.get("ranked", [])
 
             if mc and mc != "N/A":
                 self.matrix_cross_label.setText(f"{mc} (spread: {gap:.2f}σ)")
-                if has_div:
-                    self.matrix_cross_label.setStyleSheet("font-weight: bold; color: #e74c3c;")
-                else:
-                    self.matrix_cross_label.setStyleSheet("font-weight: bold; color: #8e44ad;")
+                color = "#e74c3c" if has_div else "#8e44ad"
+                self.matrix_cross_label.setStyleSheet(f"font-weight: bold; color: {color};")
             else:
                 self.matrix_cross_label.setText("—")
                 self.matrix_cross_label.setStyleSheet("font-weight: bold; color: #95a5a6;")
@@ -217,36 +213,27 @@ class ConfluenceSignalsTab(QWidget):
             else:
                 self.matrix_detail_label.setText("")
 
-            # Check for confluence
-            should_enter, reason, strength = self.confluence.check_entry_confluence()
-
-            # Update status
             if should_enter:
-                l1s = self.confluence.layer1_strongest or "—"
-                l1w = self.confluence.layer1_weakest or "—"
-                self.layer1_status_label.setText(f"🟢 {l1s}/{l1w} (Gap: {self.confluence.layer1_gap:.1f})")
+                l1s = cf.layer1_strongest or "—"
+                l1w = cf.layer1_weakest or "—"
+                self.layer1_status_label.setText(f"PAR {l1s}/{l1w} (Gap: {cf.layer1_gap:.1f})")
 
-                pair = f"{self.confluence.layer1_strongest}_{self.confluence.layer1_weakest}" if self.confluence.layer1_strongest else "—"
+                pair = f"{cf.layer1_strongest}_{cf.layer1_weakest}" if cf.layer1_strongest else "—"
                 z_score = self.tech_analyzer.get_z_score(pair) if pair != "—" else 0
-                self.layer2_status_label.setText(f"🔴 {pair} Z-score: {z_score:.2f}")
+                self.layer2_status_label.setText(f"TCH {pair} Z-score: {z_score:.2f}")
                 self.layer2_status_label.setStyleSheet("color: #27ae60;")
 
-                if has_div:
-                    self.confluence_status_label.setText(f"✅ MATRIX DIVERGENCE: {strength:.0f}%")
-                else:
-                    self.confluence_status_label.setText(f"✅ CONFLUENCE: {strength:.0f}% confidence")
+                label_text = f"✅ MATRIX DIVERGENCE: {strength:.0f}%" if has_div else f"✅ CONFLUENCE: {strength:.0f}%"
+                self.confluence_status_label.setText(label_text)
                 self.confluence_status_label.setStyleSheet("color: #27ae60; font-weight: bold;")
-
                 self._populate_signal_table(strength)
             else:
                 self.layer1_status_label.setText("No signal")
                 self.layer2_status_label.setText("No extreme")
                 self.layer2_status_label.setStyleSheet("color: #95a5a6;")
-
-                self.confluence_status_label.setText("❌ NO CONFLUENCE")
+                self.confluence_status_label.setText("✕ NO CONFLUENCE")
                 self.confluence_status_label.setStyleSheet("color: #e74c3c; font-weight: bold;")
 
-            # Update risk metrics
             portfolio = self.risk_mgmt.get_portfolio_summary()
             exposure_pct = min((portfolio['total_exposure'] / config.ACCOUNT_BALANCE) * 100, 100)
             self.exposure_bar.setValue(int(exposure_pct))
@@ -256,7 +243,6 @@ class ConfluenceSignalsTab(QWidget):
             print(f"[Confluence] Error refreshing: {e}")
     
     def _populate_signal_table(self, confluence_strength: float):
-        """Populate the signals table with matrix and confluence data."""
         report = self.confluence.get_confluence_report()
         signals = self.confluence.get_all_signals()
 
@@ -267,42 +253,50 @@ class ConfluenceSignalsTab(QWidget):
             if row >= self.signals_table.rowCount():
                 break
 
-            pair_item = QTableWidgetItem(pair_key)
-            pair_item.setFlags(pair_item.flags() & ~Qt.ItemIsEditable)
-            if signal.get('type') == 'MATRIX_DIVERGENCE':
-                pair_item.setForeground(QColor("#8e44ad"))
-            self.signals_table.setItem(row, 0, pair_item)
+            def _item(text, align=True):
+                item = QTableWidgetItem(str(text))
+                item.setFlags(item.flags() & ~Qt.ItemIsEditable)
+                if align:
+                    item.setTextAlignment(Qt.AlignCenter)
+                return item
 
-            # L1 Gap (from report)
-            gap_item = QTableWidgetItem(f"{report.get('layer1_gap', 0):.1f}")
-            gap_item.setFlags(gap_item.flags() & ~Qt.ItemIsEditable)
-            self.signals_table.setItem(row, 1, gap_item)
+            # 0: Pair
+            self.signals_table.setItem(row, 0, _item(pair_key, False))
 
-            # L2 Z-Score
+            # 1: Signal CALL/SHORT
+            direction = signal.get('direction', '')
+            signal_text = "CALL" if direction == 'LONG' else "SHORT"
+            sig_item = _item(signal_text)
+            sig_item.setForeground(QColor("#27ae60") if signal_text == "CALL" else QColor("#e74c3c"))
+            sig_item.setFont(QFont("Segoe UI", 11, QFont.Bold))
+            self.signals_table.setItem(row, 1, sig_item)
+
+            # 2: Entry
+            entry = signal.get('entry')
+            self.signals_table.setItem(row, 2, _item(f"{entry:.5f}" if entry else "—"))
+
+            # 3: SL
+            sl = signal.get('sl')
+            self.signals_table.setItem(row, 3, _item(f"{sl:.5f}" if sl else "—"))
+
+            # 4: TP
+            tp = signal.get('tp')
+            self.signals_table.setItem(row, 4, _item(f"{tp:.5f}" if tp else "—"))
+
+            # 5: L1 Gap
+            self.signals_table.setItem(row, 5, _item(f"{report.get('layer1_gap', 0):.1f}"))
+
+            # 6: Z-Score
             z = report.get('layer2_z_score', 0)
             if signal.get('type') == 'MATRIX_DIVERGENCE':
                 z = report.get('matrix_cross_z', 0)
-            z_item = QTableWidgetItem(f"{z:.2f}")
-            z_item.setFlags(z_item.flags() & ~Qt.ItemIsEditable)
-            self.signals_table.setItem(row, 2, z_item)
+            self.signals_table.setItem(row, 6, _item(f"{z:.2f}"))
 
-            # Status
-            sig_type = signal.get('type', 'SIGNAL').replace('_', ' ')
-            status_item = QTableWidgetItem(sig_type)
-            if 'DIVERGENCE' in sig_type:
-                status_item.setBackground(QColor("#f3e5f5"))
-                status_item.setForeground(QColor("#6a1b9a"))
-            else:
-                status_item.setBackground(QColor("#e8f5e9"))
-            status_item.setFlags(status_item.flags() & ~Qt.ItemIsEditable)
-            self.signals_table.setItem(row, 3, status_item)
-
-            # Confidence
+            # 7: Confidence
             strength = signal.get('strength', confluence_strength)
-            conf_item = QTableWidgetItem(f"{strength:.0f}%")
-            conf_item.setFont(QFont("Arial", 10, QFont.Bold))
-            conf_item.setFlags(conf_item.flags() & ~Qt.ItemIsEditable)
-            self.signals_table.setItem(row, 4, conf_item)
+            conf_item = _item(f"{strength:.0f}%")
+            conf_item.setFont(QFont("Segoe UI", 10, QFont.Bold))
+            self.signals_table.setItem(row, 7, conf_item)
 
             row += 1
     

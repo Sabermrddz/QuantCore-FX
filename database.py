@@ -144,6 +144,26 @@ class Database:
                         CONSTRAINT valid_month CHECK (month LIKE '____-__')
                     );
                 """)
+
+                # Table 6: Confluence signal audit log (real-time triggers)
+                cursor.execute("""
+                    CREATE TABLE IF NOT EXISTS confluence_log (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        triggered_at TEXT NOT NULL,
+                        pair TEXT NOT NULL,
+                        signal_type TEXT NOT NULL,
+                        confidence REAL NOT NULL,
+                        z_score REAL,
+                        gap REAL,
+                        reason TEXT,
+                        layer1_active INTEGER DEFAULT 0,
+                        status TEXT DEFAULT 'PENDING'
+                    );
+                """)
+                cursor.execute("""
+                    CREATE INDEX IF NOT EXISTS idx_confluence_log_time
+                    ON confluence_log(triggered_at DESC);
+                """)
                 
                 self.conn.commit()
                 
@@ -624,6 +644,48 @@ class Database:
         except sqlite3.Error as e:
             raise RuntimeError(f"Failed to fetch signals: {e}")
     
+    # ========================================================================
+    # CONFLUENCE_LOG Table Operations (Phase 3 audit trail)
+    # ========================================================================
+
+    def save_confluence_signal(self, pair: str, signal_type: str, confidence: float,
+                               z_score: float = None, gap: float = None,
+                               reason: str = None, layer1_active: bool = False) -> None:
+        """Persist a real-time confluence trigger to the audit log.
+
+        Unlike save_signal() (monthly Layer 1 signals), this logs every
+        live/backtested trigger with sub-second granularity.
+        """
+        try:
+            with self._lock:
+                cursor = self.conn.cursor()
+                cursor.execute("""
+                    INSERT INTO confluence_log
+                        (triggered_at, pair, signal_type, confidence, z_score, gap, reason, layer1_active, status)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'PENDING')
+                """, (
+                    datetime.now(timezone.utc).isoformat(),
+                    pair, signal_type, confidence, z_score, gap, reason,
+                    1 if layer1_active else 0
+                ))
+                self.conn.commit()
+        except sqlite3.Error as e:
+            self.conn.rollback()
+
+    def get_confluence_log(self, limit: int = 100) -> List[Dict]:
+        """Get the most recent confluence triggers."""
+        cursor = self.conn.cursor()
+        try:
+            cursor.execute("""
+                SELECT triggered_at, pair, signal_type, confidence, z_score, gap, reason, status
+                FROM confluence_log
+                ORDER BY triggered_at DESC LIMIT ?
+            """, (limit,))
+            rows = cursor.fetchall()
+            return [dict(r) for r in rows]
+        except sqlite3.Error:
+            return []
+
     # ========================================================================
     # Utility Methods
     # ========================================================================

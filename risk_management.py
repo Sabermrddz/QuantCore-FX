@@ -263,6 +263,7 @@ class RiskManagementSystem:
 
     def __init__(self, account_balance: float = 10000.0):
         self.account_balance = account_balance
+        self._lock = threading.Lock()
         self.sizer = PositionSizer(account_balance, risk_per_trade=0.01)
         self.hedger = GridHedging(grid_levels=config.GRID_LEVELS)
         self.portfolio = PortfolioExposure(max_portfolio_leverage=config.MAX_PORTFOLIO_LEVERAGE)
@@ -337,8 +338,9 @@ class RiskManagementSystem:
                 n_hedges = len(trade.get('basket_hedges', []))
                 print(f"[Risk] Created {n_hedges} dynamic basket hedges for {pair}")
 
-        self.portfolio.add_position(pair, position_size)
-        self.trades.append(trade)
+        with self._lock:
+            self.portfolio.add_position(pair, position_size)
+            self.trades.append(trade)
         return trade
 
     def calculate_basket_pnl(self) -> float:
@@ -437,21 +439,24 @@ class RiskManagementSystem:
         return False, total_pnl
 
     def close_trade(self, pair: str, exit_price: float) -> Optional[Dict]:
-        result = self.sizer.close_position(pair, exit_price)
-        if result:
-            self.portfolio.remove_position(pair)
+        with self._lock:
+            result = self.sizer.close_position(pair, exit_price)
+            if result:
+                self.portfolio.remove_position(pair)
         return result
 
     def close_all_trades(self, exit_prices: Dict[str, float]):
         """Close all open trades at given exit prices."""
         results = []
-        for trade in list(self.trades):
-            if trade['status'] == 'OPEN':
-                price = exit_prices.get(trade['pair'], trade['entry_price'])
-                result = self.close_trade(trade['pair'], price)
-                if result:
-                    results.append(result)
-        self.stop_exit_monitor()
+        with self._lock:
+            for trade in list(self.trades):
+                if trade['status'] == 'OPEN':
+                    price = exit_prices.get(trade['pair'], trade['entry_price'])
+                    result = self.sizer.close_position(trade['pair'], price)
+                    if result:
+                        self.portfolio.remove_position(trade['pair'])
+                        results.append(result)
+            self.stop_exit_monitor()
         return results
 
     def get_portfolio_summary(self) -> Dict:

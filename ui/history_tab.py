@@ -11,12 +11,11 @@ Features:
 """
 
 from PyQt5.QtWidgets import (
-    QWidget, QVBoxLayout, QTableWidget, QTableWidgetItem, QHeaderView,
+    QWidget, QVBoxLayout, QLabel, QTableWidget, QTableWidgetItem, QHeaderView,
     QMessageBox
 )
 from PyQt5.QtCore import Qt
 from PyQt5.QtGui import QColor, QFont
-from typing import Dict, List
 import config
 from database import Database
 
@@ -41,6 +40,10 @@ class HistoryTab(QWidget):
         """Build the UI layout."""
         layout = QVBoxLayout()
         
+        heading = QLabel("Signal History (Past 24 Months)")
+        heading.setProperty("heading", True)
+        layout.addWidget(heading)
+        
         # History table
         self.history_table = QTableWidget()
         self.history_table.setColumnCount(6)
@@ -48,8 +51,6 @@ class HistoryTab(QWidget):
             "Month", "Signal", "Gap", "Strongest", "Weakest", "Status"
         ])
         
-        # Enable sorting
-        self.history_table.setSortingEnabled(False)
         self.history_table.setSelectionBehavior(QTableWidget.SelectRows)
         self.history_table.setSelectionMode(QTableWidget.SingleSelection)
         self.history_table.itemClicked.connect(self._on_row_clicked)

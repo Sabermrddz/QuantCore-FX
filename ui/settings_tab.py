@@ -16,13 +16,12 @@ from PyQt5.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit, QDoubleSpinBox,
     QPushButton, QCheckBox, QGroupBox, QSpinBox, QMessageBox, QScrollArea
 )
-from PyQt5.QtCore import Qt, pyqtSignal, QThread
+from PyQt5.QtCore import pyqtSignal, QThread
 from PyQt5.QtGui import QFont
-from typing import Dict, Optional
+from typing import Optional
 import config
 from data_feeder import Mt5DataFeeder
 from fred_client import FredClient
-import os
 from pathlib import Path
 
 
@@ -272,24 +271,12 @@ class SettingsTab(QWidget):
         save_layout.addStretch()
         
         save_btn = QPushButton("Save Settings")
-        save_btn.setMinimumHeight(40)
-        save_btn.setFont(QFont("Arial", 11, QFont.Bold))
-        save_btn.setStyleSheet("""
-            QPushButton {
-                background-color: #3498db;
-                color: white;
-                border: none;
-                border-radius: 5px;
-                padding: 10px 20px;
-            }
-            QPushButton:hover {
-                background-color: #2980b9;
-            }
-        """)
+        save_btn.setMinimumHeight(42)
         save_btn.clicked.connect(self._save_settings)
         save_layout.addWidget(save_btn)
         
         reset_btn = QPushButton("Reset to Defaults")
+        reset_btn.setObjectName("secondary")
         reset_btn.clicked.connect(self._reset_to_defaults)
         save_layout.addWidget(reset_btn)
         

@@ -23,11 +23,11 @@ User flow:
 
 from PyQt5.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QTableWidget, QTableWidgetItem,
-    QPushButton, QProgressBar, QComboBox, QSpinBox, QDoubleSpinBox, QHeaderView,
+    QPushButton, QProgressBar, QComboBox, QDoubleSpinBox, QHeaderView,
     QFileDialog, QMessageBox
 )
-from PyQt5.QtCore import Qt, pyqtSignal, QDate
-from PyQt5.QtGui import QColor, QFont, QBrush
+from PyQt5.QtCore import Qt, pyqtSignal
+from PyQt5.QtGui import QColor
 from typing import Dict, Optional
 from datetime import datetime, timedelta
 import config
@@ -190,49 +190,16 @@ class MonthlyEntryTab(QWidget):
         # ====== Buttons ======
         button_layout = QHBoxLayout()
         
-        # Import Excel button
         self.import_btn = QPushButton("📊 Import Excel")
-        self.import_btn.setMinimumHeight(40)
-        self.import_btn.setFont(QFont("Arial", 11, QFont.Bold))
-        self.import_btn.setStyleSheet("""
-            QPushButton {
-                background-color: #3498db;
-                color: white;
-                border: none;
-                border-radius: 5px;
-                padding: 10px 20px;
-            }
-            QPushButton:hover {
-                background-color: #2980b9;
-            }
-        """)
+        self.import_btn.setMinimumHeight(42)
         button_layout.addWidget(self.import_btn)
         
         button_layout.addStretch()
         
         self.save_btn = QPushButton("Save & Calculate Scores")
+        self.save_btn.setObjectName("success")
         self.save_btn.setEnabled(False)
-        self.save_btn.setMinimumHeight(40)
-        self.save_btn.setFont(QFont("Arial", 11, QFont.Bold))
-        self.save_btn.setStyleSheet("""
-            QPushButton:enabled {
-                background-color: #2ecc71;
-                color: white;
-                border: none;
-                border-radius: 5px;
-                padding: 10px 20px;
-            }
-            QPushButton:hover:enabled {
-                background-color: #27ae60;
-            }
-            QPushButton:disabled {
-                background-color: #95a5a6;
-                color: #7f8c8d;
-                border: none;
-                border-radius: 5px;
-                padding: 10px 20px;
-            }
-        """)
+        self.save_btn.setMinimumHeight(42)
         button_layout.addWidget(self.save_btn)
         
         layout.addLayout(button_layout)

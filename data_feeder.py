@@ -10,9 +10,6 @@ Fetches forex data from a local MetaTrader 5 terminal.
 Requirements:
 - MetaTrader 5 terminal installed and running with a demo/live account
 - pip install MetaTrader5
-
-Fallback:
-- MockDataFeeder for testing without MT5
 """
 
 import time
@@ -219,7 +216,7 @@ class Mt5DataFeeder:
                 continue
             rates = self._mt5.copy_rates_from_pos(mt5_pair, tf, 0, count)
             if rates is not None:
-                closes = [r.close for r in rates]
+                closes = [r["close"] for r in rates]
                 all_closes[pair] = closes
         return all_closes
 
@@ -263,11 +260,11 @@ class Mt5DataFeeder:
         candles = []
         for r in rates:
             candles.append({
-                "time": datetime.fromtimestamp(r.time).isoformat(),
-                "open": r.open,
-                "high": r.high,
-                "low": r.low,
-                "close": r.close,
+                "time": datetime.fromtimestamp(r["time"]).isoformat(),
+                "open": r["open"],
+                "high": r["high"],
+                "low": r["low"],
+                "close": r["close"],
             })
         return candles
 
@@ -314,256 +311,4 @@ class Mt5DataFeeder:
             print("[MT5] Streaming stopped")
 
 
-class MockDataFeeder:
-    """Mock data feeder for testing — simulates intraday prices for all 28 pairs."""
 
-    USD_PAIRS = ["EUR_USD", "GBP_USD", "AUD_USD", "NZD_USD",
-                  "USD_JPY", "USD_CAD", "USD_CHF"]
-
-    def __init__(self):
-        self.base_prices = {
-            "EUR_USD": 1.0850,
-            "GBP_USD": 1.2650,
-            "AUD_USD": 0.6650,
-            "NZD_USD": 0.6050,
-            "USD_JPY": 149.50,
-            "USD_CAD": 1.3750,
-            "USD_CHF": 0.8920,
-        }
-        self.price_callbacks = []
-        self.connected = True
-        self._running = False
-        self._cached_bars: Dict[str, List[float]] = {}
-        self._tick_index = 0
-
-    def test_connection(self) -> bool:
-        return True
-
-    def get_all_major_pairs(self) -> List[str]:
-        pairs = []
-        for base in config.CURRENCIES:
-            for quote in config.CURRENCIES:
-                if base != quote:
-                    pairs.append(f"{base}_{quote}")
-        return pairs
-
-    def generate_mock_bars(self, n_bars: int = 288) -> Dict[str, List[float]]:
-        """Generate n_bars simulated M5 close prices with realistic behavior.
-
-        Uses an Ornstein-Uhlenbeck process (mean-reverting random walk with
-        drift) for each of the 7 USD pairs, then derives all 28 cross rates.
-        This gives 24h (288 M5 bars) of realistic forex data where Z-scores
-        reflect genuine multi-hour deviations.
-
-        Caches the generated bars so subsequent tick prices are anchored
-        to the last bar close — not the initial base price.
-        """
-        import random
-        bars: Dict[str, List[float]] = {}
-        usd_pair_bars: Dict[str, List[float]] = {}
-
-        for pair in self.USD_PAIRS:
-            base = self.base_prices.get(pair, 1.0)
-            series = []
-            price = base
-            drift = random.uniform(-config.MOCK_DRIFT, config.MOCK_DRIFT)
-            theta = config.MOCK_THETA
-            long_term_mean = base
-
-            for i in range(n_bars):
-                noise = random.gauss(0, config.MOCK_NOISE_STD)
-                reversion = theta * (long_term_mean - price)
-                seasonal = config.MOCK_SEASONAL_AMP * random.uniform(-1, 1)
-                price = price + reversion + drift + seasonal + noise
-                series.append(price)
-
-            usd_pair_bars[pair] = series
-
-        pairs_list = self.get_all_major_pairs()
-        for pair in pairs_list:
-            base_c, quote_c = pair.split("_")
-            derived = []
-            for i in range(n_bars):
-                usd_rates = {"USD": 1.0}
-                for up in self.USD_PAIRS:
-                    b, q = up.split("_")
-                    mid = usd_pair_bars[up][i]
-                    if b == "USD":
-                        usd_rates[q] = 1.0 / mid if mid else 0
-                    else:
-                        usd_rates[b] = mid
-                bv = usd_rates.get(base_c, 0)
-                qv = usd_rates.get(quote_c, 1)
-                derived.append(bv / qv if qv else 0)
-            bars[pair] = derived
-
-        self._cached_bars = bars
-        self._tick_index = 0
-        return bars
-
-    def _current_bar_prices(self) -> Dict[str, float]:
-        """Get the latest bar close prices for all pairs."""
-        if not self._cached_bars:
-            return {}
-        prices = {}
-        for pair in self.get_all_major_pairs():
-            bars = self._cached_bars.get(pair)
-            if bars:
-                prices[pair] = bars[-1]
-        return prices
-
-    def _tick_price(self, pair: str) -> float:
-        """Return price anchored to last bar close + small noise.
-
-        Uses the last bar close from _cached_bars as the anchor, so the
-        tick price is always near the most recent bar and Z-scores reflect
-        the bar position relative to the 24-hour history, not random noise.
-        """
-        import random
-        last_bars = self._cached_bars.get(pair) if self._cached_bars else None
-        if last_bars and len(last_bars) > 0:
-            base = last_bars[-1]
-        else:
-            base = self.base_prices.get(pair, 1.0)
-        return base + random.uniform(-config.MOCK_TICK_NOISE, config.MOCK_TICK_NOISE)
-
-    def get_current_price(self, currency_pair: str) -> Optional[Dict]:
-        """Get price for any pair, deriving cross rates from USD pairs."""
-        import random
-        usd_rates = {}
-        for p in self.USD_PAIRS:
-            base, quote = p.split("_")
-            mid = self._tick_price(p)
-            if base == "USD":
-                usd_rates[quote] = 1.0 / mid if mid != 0 else None
-            else:
-                usd_rates[base] = mid
-        usd_rates["USD"] = 1.0
-
-        base_c, quote_c = currency_pair.split("_")
-        base_val = usd_rates.get(base_c)
-        quote_val = usd_rates.get(quote_c)
-        if base_val is None or quote_val is None:
-            return None
-        price = base_val / quote_val
-        return {
-            "pair": currency_pair,
-            "time": datetime.now().isoformat(),
-            "mid": price,
-            "bid": price - config.MOCK_BID_ASK_SPREAD,
-            "ask": price + config.MOCK_BID_ASK_SPREAD,
-        }
-
-    def fetch_all_rates(self) -> Dict[str, float]:
-        """Derive all 28 cross rates from 7 USD pairs (same as Mt5DataFeeder)."""
-        usd_rates: Dict[str, Optional[float]] = {}
-        for p in self.USD_PAIRS:
-            base, quote = p.split("_")
-            mid = self._tick_price(p)
-            if base == "USD":
-                usd_rates[quote] = 1.0 / mid if mid != 0 else None
-            else:
-                usd_rates[base] = mid
-        usd_rates["USD"] = 1.0
-
-        rates = {}
-        for base in config.CURRENCIES:
-            for quote in config.CURRENCIES:
-                if base == quote:
-                    continue
-                bv = usd_rates.get(base)
-                qv = usd_rates.get(quote)
-                if bv is not None and qv is not None:
-                    rates[f"{base}_{quote}"] = bv / qv
-        return rates
-
-    def get_order_book(self, currency_pair: str) -> Optional[Dict]:
-        """Mock order book — simulated bid/ask/spread."""
-        price = self.get_current_price(currency_pair)
-        if not price:
-            return None
-        return {
-            "pair": currency_pair,
-            "bid": price["mid"] - config.MOCK_BID_ASK_SPREAD,
-            "ask": price["mid"] + config.MOCK_BID_ASK_SPREAD,
-            "spread": config.MOCK_BID_ASK_SPREAD * 2,
-            "mid": price["mid"],
-            "time": datetime.now().isoformat(),
-        }
-
-    def fetch_historical_closes_all_pairs(
-        self, days: int = 30, interval: str = "1d"
-    ) -> Dict[str, List[float]]:
-        """Mock historical close prices — random walk for all 28 pairs."""
-        import random
-        closes: Dict[str, List[float]] = {}
-        pairs = self.get_all_major_pairs()
-        all_rates = self.fetch_all_rates()
-        for pair in pairs:
-            base = all_rates.get(pair, 1.0)
-            series = []
-            price = base
-            for _ in range(days):
-                price += random.uniform(-config.MOCK_HISTORICAL_DAILY_NOISE, config.MOCK_HISTORICAL_DAILY_NOISE)
-                series.append(price)
-            closes[pair] = series
-        return closes
-
-    def get_historical_candles(
-        self,
-        from_currency: str = "USD",
-        to_currency: str = "JPY",
-        interval: str = "1min",
-        outputsize: str = "compact",
-    ) -> Optional[List[Dict]]:
-        import random
-        candles = []
-        count = 100 if outputsize == "full" else 20
-        pair = f"{from_currency}_{to_currency}"
-        base = self._cached_bars.get(pair, [None])[-1] if self._cached_bars.get(pair) else 1.0
-        for i in range(count):
-            noise = random.uniform(-0.005, 0.005)
-            price = base + noise
-            candles.append({
-                "time": (datetime.now() - timedelta(minutes=count - i)).isoformat(),
-                "open": price,
-                "high": price + 0.01,
-                "low": price - 0.01,
-                "close": price + random.uniform(-0.005, 0.005),
-            })
-        return candles
-
-    def stream_prices(self, instruments: List[str], callback: Callable, poll_interval: int = 1):
-        """Derive all 28 rates and feed callback for each instrument (same as MT5)."""
-        self.price_callbacks.append(callback)
-        self._running = True
-
-        def mock_stream():
-            while self._running:
-                all_rates = self.fetch_all_rates()
-                for pair in instruments:
-                    rate = all_rates.get(pair)
-                    if rate:
-                        callback({
-                            "pair": pair,
-                            "time": datetime.now().isoformat(),
-                            "mid": rate,
-                            "bid": rate,
-                            "ask": rate,
-                        })
-                time.sleep(poll_interval)
-
-        thread = threading.Thread(target=mock_stream, daemon=True)
-        thread.start()
-
-    def stop_streaming(self):
-        """Stop the mock data stream."""
-        self._running = False
-        if config.DEBUG:
-            print("[Mock] Streaming stopped")
-
-    def on_price_update(self, callback: Callable):
-        self.price_callbacks.append(callback)
-
-    def on_error(self, callback: Callable):
-        pass
