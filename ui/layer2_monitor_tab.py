@@ -407,7 +407,7 @@ class Layer2MonitorTab(QWidget):
                 z_item.setFlags(z_item.flags() & ~Qt.ItemIsEditable)
                 z_item.setTextAlignment(Qt.AlignCenter)
 
-                if abs(z_score) >= config.Z_SCORE_THRESHOLD:
+                if abs(z_score) >= config.SCALP_Z_SCORE_THRESHOLD:
                     z_item.setBackground(QColor("#ffebee"))
                     z_item.setForeground(QColor("#c62828"))
 
@@ -525,7 +525,7 @@ class Layer2MonitorTab(QWidget):
                 z_item.setTextAlignment(Qt.AlignCenter)
 
                 # High-contrast σ formatting (Task 4.1)
-                threshold = config.Z_SCORE_THRESHOLD
+                threshold = config.SCALP_Z_SCORE_THRESHOLD
                 if z_val >= threshold:
                     z_item.setBackground(QColor("#c62828"))
                     z_item.setForeground(QColor("white"))

@@ -253,17 +253,14 @@ def generate_signal(scores: Dict[str, Dict]) -> Tuple[str, str, str]:
 
 
 def build_directional_bias_matrix(scores: Dict[str, Dict]) -> Dict[str, Dict]:
-    """Build a permanent monthly directional bias matrix from Layer 1 scores.
+    """Build an advisory directional bias matrix from Layer 1 scores.
 
-    Rules:
-      - Top 2 scores → "STRONG" — currency must only be longed, never shorted
-      - Bottom 2 scores → "WEAK" — currency must only be shorted, never longed
-      - Middle 4 scores → "NEUTRAL" — no directional restriction
+    DISPLAY ONLY — does not gate or block any trade signal anywhere in the system.
+    Top 2 → "STRONG", Bottom 2 → "WEAK", Middle 4 → "NEUTRAL".
 
     Returns:
         {
             "USD": {"direction": "STRONG", "score": 85.2, "rank": 1},
-            "EUR": {"direction": "NEUTRAL", "score": 55.0, "rank": 4},
             "JPY": {"direction": "WEAK", "score": 22.1, "rank": 8},
             ...
         }

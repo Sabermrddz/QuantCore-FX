@@ -20,11 +20,12 @@ Responsibilities:
 """
 
 from PyQt5.QtWidgets import QMainWindow, QTabWidget, QMessageBox
-from PyQt5.QtCore import QThread, pyqtSignal
+from PyQt5.QtCore import QThread, pyqtSignal, QTimer
 from typing import Dict, Optional
 import config
 from database import Database
 from layer2_technical import TechnicalAnalyzer
+from currency_strength_matrix import CurrencyStrengthMatrix
 from ui.dashboard_tab import DashboardTab
 from ui.entry_tab import MonthlyEntryTab
 from ui.layer2_monitor_tab import Layer2MonitorTab
@@ -115,6 +116,7 @@ class MainWindow(QMainWindow):
         self._init_ui()
         self._connect_signals()
         self._setup_auto_fetch()
+        self._setup_live_signal_timer()
     
     def _init_ui(self):
         """Build the main window UI."""
@@ -124,8 +126,8 @@ class MainWindow(QMainWindow):
         # Tab widget
         tabs = QTabWidget()
         
-        # Tab 1: Dashboard (Layer 1)
-        self.dashboard_tab = DashboardTab(self.db)
+        # Tab 1: Dashboard (Live + Macro Backdrop)
+        self.dashboard_tab = DashboardTab(self.db, tech_analyzer=self.tech_analyzer)
         tabs.addTab(self.dashboard_tab, config.TAB_NAMES["dashboard"])
         
         # Tab 2: Monthly Entry (Data input)
@@ -172,6 +174,17 @@ class MainWindow(QMainWindow):
                 print("[Main] Auto-fetch enabled, fetching rates on startup...")
             self._fetch_rates()
     
+    def _setup_live_signal_timer(self):
+        """Periodically refresh the live intraday signal on the dashboard."""
+        self._live_signal_timer = QTimer()
+        self._live_signal_timer.timeout.connect(self._tick_live_signal)
+        self._live_signal_timer.start(3000)
+
+    def _tick_live_signal(self):
+        """Refresh live signal on dashboard."""
+        if self.dashboard_tab:
+            self.dashboard_tab.update_live_signal()
+
     def _fetch_rates(self):
         """
         Trigger background FRED rate fetch.

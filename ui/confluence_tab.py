@@ -1,16 +1,13 @@
 """
 APEX Confluence Signals Tab — Layer 1 + Layer 2 Merging
 
-Displays:
-- Current Layer 1 fundamental bias
-- Layer 2 technical extremes
-- Confluence signals (both aligned)
-- Risk management details
+DISPLAY ONLY — no position sizing, no auto-execution, no hedging.
+Shows pair, direction, strength/gap, confluence agreement, and text-described zones.
 """
 
 from PyQt5.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QTableWidget, QTableWidgetItem,
-    QPushButton, QFrame, QMessageBox, QProgressBar
+    QPushButton, QFrame, QHeaderView
 )
 from PyQt5.QtCore import Qt, QTimer
 from PyQt5.QtGui import QColor, QFont
@@ -18,13 +15,12 @@ from typing import Dict, Optional
 from datetime import datetime
 import config
 from layer2_technical import TechnicalAnalyzer
-from confluence_filter import ConfluenceFilter, SignalHistory
-from risk_management import RiskManagementSystem
+from confluence_filter import ConfluenceFilter
 from database import Database
 
 
 class ConfluenceSignalsTab(QWidget):
-    """Confluence signals monitoring and execution."""
+    """Confluence signals monitoring — display only, no execution."""
     
     def __init__(self, db: Database, tech_analyzer: TechnicalAnalyzer):
         super().__init__()
@@ -32,8 +28,6 @@ class ConfluenceSignalsTab(QWidget):
         self.db = db
         self.tech_analyzer = tech_analyzer
         self.confluence = ConfluenceFilter(tech_analyzer, db=db)
-        self.risk_mgmt = RiskManagementSystem(account_balance=config.ACCOUNT_BALANCE)
-        self.signal_history = SignalHistory()
         
         self._init_ui()
         self._setup_auto_refresh()
@@ -61,34 +55,13 @@ class ConfluenceSignalsTab(QWidget):
         
         layout.addWidget(self.signals_table)
         
-        # ====== Risk Management Panel ======
-        risk_layout = QHBoxLayout()
-        risk_layout.addWidget(QLabel("Portfolio Exposure:"))
-        
-        self.exposure_bar = QProgressBar()
-        self.exposure_bar.setMaximum(100)
-        self.exposure_bar.setFormat("%v% exposed")
-        risk_layout.addWidget(self.exposure_bar)
-        
-        self.leverage_label = QLabel("Leverage: —")
-        self.leverage_label.setStyleSheet("font-weight: 600; color: #5d6d7e;")
-        risk_layout.addWidget(self.leverage_label)
-        
-        risk_layout.addStretch()
-        layout.addLayout(risk_layout)
-        
-        # ====== Control Buttons ======
+        # ====== Controls ======
         button_layout = QHBoxLayout()
         
         refresh_btn = QPushButton("Refresh Signals")
         refresh_btn.setObjectName("secondary")
         refresh_btn.clicked.connect(self._refresh_signals)
         button_layout.addWidget(refresh_btn)
-        
-        execute_btn = QPushButton("Execute Top Signal")
-        execute_btn.setObjectName("success")
-        execute_btn.clicked.connect(self._execute_signal)
-        button_layout.addWidget(execute_btn)
         
         button_layout.addStretch()
         layout.addLayout(button_layout)
@@ -234,11 +207,6 @@ class ConfluenceSignalsTab(QWidget):
                 self.confluence_status_label.setText("✕ NO CONFLUENCE")
                 self.confluence_status_label.setStyleSheet("color: #e74c3c; font-weight: bold;")
 
-            portfolio = self.risk_mgmt.get_portfolio_summary()
-            exposure_pct = min((portfolio['total_exposure'] / config.ACCOUNT_BALANCE) * 100, 100)
-            self.exposure_bar.setValue(int(exposure_pct))
-            self.leverage_label.setText(f"Leverage: {portfolio['leverage_ratio']:.2f}x")
-
         except Exception as e:
             print(f"[Confluence] Error refreshing: {e}")
     
@@ -299,55 +267,6 @@ class ConfluenceSignalsTab(QWidget):
             self.signals_table.setItem(row, 7, conf_item)
 
             row += 1
-    
-    def _execute_signal(self):
-        """Execute the top confluence signal."""
-        signals = self.confluence.get_all_signals()
-        if not signals:
-            QMessageBox.warning(self, "No Signal", "No valid confluence signal to execute")
-            return
-
-        try:
-            best = max(signals.values(), key=lambda s: s.get('strength', 0))
-            pair = best['pair']
-            strength = best['strength']
-
-            current_price = 1.0
-
-            trade = self.risk_mgmt.execute_signal(
-                pair,
-                strength,
-                current_price,
-                use_hedging=config.USE_GRID_HEDGING
-            )
-            
-            if trade:
-                msg = (
-                    f"Trade Executed:\n"
-                    f"Pair: {trade['pair']}\n"
-                    f"Entry: {trade['entry_price']:.4f}\n"
-                    f"Size: {trade['position_size']:.2f} lots\n"
-                    f"Confidence: {trade['confluence_strength']:.0f}%"
-                )
-                QMessageBox.information(self, "Trade Executed", msg)
-                
-                self.signal_history.add_signal({
-                    'pair': pair,
-                    'type': best.get('type', 'SIGNAL'),
-                    'entry_price': current_price,
-                    'confluence_strength': strength,
-                })
-            else:
-                QMessageBox.warning(
-                    self,
-                    "Execution Failed",
-                    "Position size would exceed portfolio leverage limits"
-                )
-            
-            self._refresh_signals()
-            
-        except Exception as e:
-            QMessageBox.critical(self, "Error", f"Execution failed: {e}")
     
     def _setup_auto_refresh(self):
         """Setup automatic refresh timer."""

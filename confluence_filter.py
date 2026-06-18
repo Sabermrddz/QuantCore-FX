@@ -72,13 +72,10 @@ class ConfluenceFilter:
             print(f"[Confluence] Monthly bias matrix set: {directions}")
 
     def _check_boundary(self, short_ccy: str, long_ccy: str) -> Tuple[bool, str]:
-        """Check if a proposed trade crosses the Layer 1 macro boundary.
+        """Advisory-only macro boundary check — does NOT block any signal.
 
-        A trade proposes SHORT short_ccy + LONG long_ccy.
-        Boundary rules:
-          - STRONG currencies cannot be shorted
-          - WEAK currencies cannot be longed
-          - NEUTRAL currencies have no restriction
+        Returns (True, reason) always. The bias matrix is displayed for
+        context in the UI but never gates/ vetoes a trade signal.
 
         Returns:
             (allowed: bool, reason: str)
@@ -89,17 +86,13 @@ class ConfluenceFilter:
         short_dir = self.bias_matrix.get(short_ccy, {}).get("direction", "NEUTRAL")
         long_dir = self.bias_matrix.get(long_ccy, {}).get("direction", "NEUTRAL")
 
+        notes = []
         if short_dir == "STRONG":
-            return (
-                False,
-                f"Cannot short {short_ccy}: classified STRONG by Layer 1 macro bias"
-            )
+            notes.append(f"{short_ccy}=STRONG (advisory)")
         if long_dir == "WEAK":
-            return (
-                False,
-                f"Cannot long {long_ccy}: classified WEAK by Layer 1 macro bias"
-            )
-        return True, "Within macro boundary"
+            notes.append(f"{long_ccy}=WEAK (advisory)")
+        advisory = f"Within macro boundary — {' | '.join(notes) if notes else 'neutral'}"
+        return True, advisory
 
     def check_entry_confluence(self, current_prices: Dict[str, float] = None
                                ) -> Tuple[bool, str, float, Optional[Dict]]:
@@ -109,58 +102,45 @@ class ConfluenceFilter:
             mc = self.matrix.get_matrix_cross()
             gap = self.matrix.get_divergence_gap()
 
-            if mc and "_" in mc:
+            if mc and "_" in mc and gap >= config.SCALP_MIN_GAP_TO_TRADE:
                 short_ccy, long_ccy = mc.split("_", 1)
-                allowed, reason = self._check_boundary(short_ccy, long_ccy)
-                if allowed:
-                    confidence = min(abs(gap) / 4.0, 1.0) * 100
-                    self.confluence_strength = confidence
-                    self.last_confluence_check = datetime.now()
-                    direction = "SHORT" if confidence > 50 else "LONG"
-                    entry = self.tech_analyzer.get_last_price(mc) or 0.0
-                    sl_tp = self.tech_analyzer.calculate_sl_tp(mc, direction, entry)
-                    if self.db:
-                        self.db.save_confluence_signal(
-                            pair=mc, signal_type="MATRIX_DIVERGENCE",
-                            confidence=confidence, z_score=None, gap=gap,
-                            reason=f"Matrix cross {mc} gap={gap:.1f}σ",
-                            layer1_active=self.layer1_is_active,
-                        )
-                    return (True, f"MATRIX DIVERGENCE: {mc} (Gap: {gap:.1f}σ)", confidence, sl_tp)
-                else:
-                    self.confluence_strength = 0.0
-                    self.last_confluence_check = datetime.now()
-                    return (False, f"MATRIX DIVERGENCE BLOCKED — {reason}", 0.0, None)
+                _, advisory = self._check_boundary(short_ccy, long_ccy)
+                confidence = min(abs(gap) / 4.0, 1.0) * 100
+                self.confluence_strength = confidence
+                self.last_confluence_check = datetime.now()
+                direction = "SHORT" if confidence > 50 else "LONG"
+                entry = self.tech_analyzer.get_last_price(mc) or 0.0
+                sl_tp = self.tech_analyzer.calculate_sl_tp(mc, direction, entry)
+                if self.db:
+                    self.db.save_confluence_signal(
+                        pair=mc, signal_type="MATRIX_DIVERGENCE",
+                        confidence=confidence, z_score=None, gap=gap,
+                        reason=f"Matrix cross {mc} gap={gap:.1f}σ | {advisory}",
+                        layer1_active=self.layer1_is_active,
+                    )
+                return (True, f"MATRIX DIVERGENCE: {mc} (Gap: {gap:.1f}σ)", confidence, sl_tp)
 
         all_z = self.tech_analyzer.get_all_z_scores()
         sorted_pairs = sorted(all_z.items(), key=lambda x: abs(x[1]), reverse=True)
 
         for pair, z_score in sorted_pairs:
-            if abs(z_score) < config.Z_SCORE_THRESHOLD:
+            if abs(z_score) < config.SCALP_Z_SCORE_THRESHOLD:
                 continue
 
-            base, quote = pair.split("_")
-            if z_score > 0:
-                short_ccy, long_ccy = base, quote
-            else:
-                short_ccy, long_ccy = quote, base
-
-            allowed, reason = self._check_boundary(short_ccy, long_ccy)
-            if allowed:
-                confidence = min(abs(z_score) / 3.0, 1.0) * 100
-                self.confluence_strength = confidence
-                self.last_confluence_check = datetime.now()
-                direction = "SHORT" if z_score > 0 else "LONG"
-                entry = self.tech_analyzer.get_last_price(pair) or 0.0
-                sl_tp = self.tech_analyzer.calculate_sl_tp(pair, direction, entry)
-                if self.db:
-                    self.db.save_confluence_signal(
-                        pair=pair, signal_type="PAIR_EXTREME",
-                        confidence=confidence, z_score=z_score,
-                        reason=f"Z={z_score:.2f} within macro boundary",
-                        layer1_active=self.layer1_is_active,
-                    )
-                return (True, f"PAIR EXTREME: {pair} Z={z_score:.2f}", confidence, sl_tp)
+            confidence = min(abs(z_score) / 3.0, 1.0) * 100
+            self.confluence_strength = confidence
+            self.last_confluence_check = datetime.now()
+            direction = "SHORT" if z_score > 0 else "LONG"
+            entry = self.tech_analyzer.get_last_price(pair) or 0.0
+            sl_tp = self.tech_analyzer.calculate_sl_tp(pair, direction, entry)
+            if self.db:
+                self.db.save_confluence_signal(
+                    pair=pair, signal_type="PAIR_EXTREME",
+                    confidence=confidence, z_score=z_score,
+                    reason=f"Z={z_score:.2f}",
+                    layer1_active=self.layer1_is_active,
+                )
+            return (True, f"PAIR EXTREME: {pair} Z={z_score:.2f}", confidence, sl_tp)
 
         return (False, "No valid signals within macro boundary", 0.0, None)
 
@@ -181,23 +161,7 @@ class ConfluenceFilter:
         return False, "Position still valid"
 
     def is_conflicting(self) -> bool:
-        """Check if any extreme Layer 2 signal crosses the macro boundary."""
-        if not self.bias_matrix:
-            return False
-
-        all_z = self.tech_analyzer.get_all_z_scores()
-        for pair, z_score in all_z.items():
-            if abs(z_score) < config.Z_SCORE_THRESHOLD:
-                continue
-            base, quote = pair.split("_")
-            if z_score > 0:
-                short_dir = self.bias_matrix.get(base, {}).get("direction", "NEUTRAL")
-                long_dir = self.bias_matrix.get(quote, {}).get("direction", "NEUTRAL")
-            else:
-                short_dir = self.bias_matrix.get(quote, {}).get("direction", "NEUTRAL")
-                long_dir = self.bias_matrix.get(base, {}).get("direction", "NEUTRAL")
-            if short_dir == "STRONG" or long_dir == "WEAK":
-                return True
+        """Advisory-only check — always returns False (does not block signals)."""
         return False
 
     def get_confluence_report(self, current_prices: Dict[str, float] = None) -> Dict:
@@ -250,50 +214,39 @@ class ConfluenceFilter:
             if mc:
                 gap = self.matrix.get_divergence_gap()
                 strength = min(abs(gap) / 4.0, 1.0) * 100
-                short_ccy, long_ccy = mc.split("_", 1)
-                allowed, _ = self._check_boundary(short_ccy, long_ccy)
-                if allowed:
-                    direction = 'SHORT' if strength > 50 else 'LONG'
-                    entry = self.tech_analyzer.get_last_price(mc) or 0.0
-                    sl_tp = self.tech_analyzer.calculate_sl_tp(mc, "LONG" if direction == "LONG" else "SHORT", entry)
-                    signals[mc] = {
-                        'pair': mc,
-                        'type': 'MATRIX_DIVERGENCE',
-                        'strength': strength,
-                        'reason': f"Matrix cross {mc} (spread: {gap:.2f}σ)",
-                        'direction': direction,
-                        **sl_tp,
-                    }
+                direction = 'SHORT' if strength > 50 else 'LONG'
+                entry = self.tech_analyzer.get_last_price(mc) or 0.0
+                sl_tp = self.tech_analyzer.calculate_sl_tp(mc, "LONG" if direction == "LONG" else "SHORT", entry)
+                signals[mc] = {
+                    'pair': mc,
+                    'type': 'MATRIX_DIVERGENCE',
+                    'strength': strength,
+                    'reason': f"Matrix cross {mc} (spread: {gap:.2f}σ)",
+                    'direction': direction,
+                    **sl_tp,
+                }
 
         for pair, z_score in sorted(
             self.tech_analyzer.get_all_z_scores().items(),
             key=lambda x: abs(x[1]), reverse=True
         ):
-            if abs(z_score) < config.Z_SCORE_THRESHOLD:
+            if abs(z_score) < config.SCALP_Z_SCORE_THRESHOLD:
                 continue
             if pair in signals:
                 continue
 
-            base, quote = pair.split("_")
-            if z_score > 0:
-                short_ccy, long_ccy = base, quote
-            else:
-                short_ccy, long_ccy = quote, base
-
-            allowed, _ = self._check_boundary(short_ccy, long_ccy)
-            if allowed:
-                strength = min(abs(z_score) / 3.0, 1.0) * 100
-                direction = 'SHORT' if z_score > 0 else 'LONG'
-                entry = self.tech_analyzer.get_last_price(pair) or 0.0
-                sl_tp = self.tech_analyzer.calculate_sl_tp(pair, "LONG" if direction == "LONG" else "SHORT", entry)
-                signals[pair] = {
-                    'pair': pair,
-                    'type': 'PAIR_EXTREME',
-                    'strength': strength,
-                    'reason': f"{pair} Z={z_score:.2f} within macro boundary",
-                    'direction': direction,
-                    **sl_tp,
-                }
+            strength = min(abs(z_score) / 3.0, 1.0) * 100
+            direction = 'SHORT' if z_score > 0 else 'LONG'
+            entry = self.tech_analyzer.get_last_price(pair) or 0.0
+            sl_tp = self.tech_analyzer.calculate_sl_tp(pair, "LONG" if direction == "LONG" else "SHORT", entry)
+            signals[pair] = {
+                'pair': pair,
+                'type': 'PAIR_EXTREME',
+                'strength': strength,
+                'reason': f"{pair} Z={z_score:.2f}",
+                'direction': direction,
+                **sl_tp,
+            }
 
         return signals
 

@@ -80,7 +80,7 @@ class CurrencyStrengthMatrix:
 
     def __init__(self, z_scores: Dict[str, float] = None):
         self.currencies = config.CURRENCIES
-        self.threshold = config.Z_SCORE_THRESHOLD
+        self.threshold = config.SCALP_Z_SCORE_THRESHOLD
         self._raw_scores: Dict[str, List[float]] = {}
         self._strengths: Dict[str, CurrencyStrength] = {}
         self.session_tracker = SessionTracker()

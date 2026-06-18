@@ -212,16 +212,18 @@ CURRENCY_EMOJIS = {
 MT5_SYMBOL_SUFFIX = os.getenv("MT5_SYMBOL_SUFFIX", "")
 
 # Technical Analysis Settings
-Z_SCORE_THRESHOLD = float(os.getenv("Z_SCORE_THRESHOLD", 2.0))  # Overbought/oversold level
+Z_SCORE_THRESHOLD = float(os.getenv("Z_SCORE_THRESHOLD", 2.0))  # Overbought/oversold level (legacy/macro)
+SCALP_Z_SCORE_THRESHOLD = float(os.getenv("SCALP_Z_SCORE_THRESHOLD", 1.5))  # Intraday threshold (more sensitive)
+SCALP_MIN_GAP_TO_TRADE = float(os.getenv("SCALP_MIN_GAP", 2.0))  # Intraday min gap (sigma units)
 
-# Multi-timeframe configuration
+# Multi-timeframe configuration (short lookbacks for scalping)
 TIMEFRAMES = {
-    "M5":  {"interval": "5min",  "bars": 288, "label": "5 min"},
-    "M15": {"interval": "15min", "bars": 96,  "label": "15 min"},
-    "H1":  {"interval": "1h",    "bars": 48,  "label": "1 hour"},
-    "H4":  {"interval": "4h",    "bars": 24,  "label": "4 hour"},
+    "M5":  {"interval": "5min",  "bars": 48,  "label": "5 min"},
+    "M15": {"interval": "15min", "bars": 16,  "label": "15 min"},
+    "H1":  {"interval": "1h",    "bars": 12,  "label": "1 hour"},
+    "H4":  {"interval": "4h",    "bars": 6,   "label": "4 hour"},
 }
-DEFAULT_TIMEFRAME = os.getenv("DEFAULT_TIMEFRAME", "M15")
+DEFAULT_TIMEFRAME = os.getenv("DEFAULT_TIMEFRAME", "M5")
 
 # Historical bar config (backward compat)
 BAR_TIMEFRAME = os.getenv("BAR_TIMEFRAME", "M5")
@@ -241,7 +243,17 @@ SESSION_LONDON_CLOSE = 16 # 16:00 UTC
 SESSION_NEWYORK_OPEN = 13 # 13:00 UTC
 SESSION_NEWYORK_CLOSE = 21# 21:00 UTC
 
-# Confluence Settings
+# ============================================================================
+# Confluence Layer Weights (Scalper Profile)
+# ============================================================================
+# Effective weight distribution for signal display:
+#   - Market Structure + Order Flow (Currency Strength Matrix / Z-scores): ~65%
+#   - Currency Power Matrix (Session SRV + momentum): ~25%
+#   - Macro / Fundamental Backdrop (Layer 1 scorer, advisory only): ~10%
+#
+# The macro layer is DISPLAY ONLY — it never blocks or vetoes a trade signal.
+# Currency Power Matrix refers to CurrencyStrengthMatrix (this engine).
+# ============================================================================
 CONFLUENCE_ENABLED = os.getenv("CONFLUENCE_ENABLED", "true").lower() == "true"
 MIN_CONFLUENCE_STRENGTH = float(os.getenv("MIN_CONFLUENCE_STRENGTH", 60.0))  # 60% confidence threshold
 

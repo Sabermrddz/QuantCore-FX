@@ -97,7 +97,7 @@ class TechnicalAnalyzer:
         current_price = prices[-1]
         z_score = (current_price - mu) / sigma
         self.z_scores[currency_pair] = z_score
-        self.extremes[currency_pair] = abs(z_score) >= config.Z_SCORE_THRESHOLD
+        self.extremes[currency_pair] = abs(z_score) >= config.SCALP_Z_SCORE_THRESHOLD
 
     def get_z_score(self, currency_pair: str) -> float:
         return self.z_scores.get(currency_pair, 0.0)
@@ -106,10 +106,10 @@ class TechnicalAnalyzer:
         return self.extremes.get(currency_pair, False)
 
     def get_overbought_pairs(self) -> List[str]:
-        return [pair for pair, z in self.z_scores.items() if z >= config.Z_SCORE_THRESHOLD]
+        return [pair for pair, z in self.z_scores.items() if z >= config.SCALP_Z_SCORE_THRESHOLD]
 
     def get_oversold_pairs(self) -> List[str]:
-        return [pair for pair, z in self.z_scores.items() if z <= -config.Z_SCORE_THRESHOLD]
+        return [pair for pair, z in self.z_scores.items() if z <= -config.SCALP_Z_SCORE_THRESHOLD]
 
     def get_volatility(self, currency_pair: str) -> float:
         bars = list(self.bar_history[currency_pair])
@@ -191,7 +191,7 @@ class TechnicalAnalyzer:
                 if ticks and sigma > 0:
                     z = (ticks[-1] - mu) / sigma
                     self.z_scores[pair] = z
-                    self.extremes[pair] = abs(z) >= config.Z_SCORE_THRESHOLD
+                    self.extremes[pair] = abs(z) >= config.SCALP_Z_SCORE_THRESHOLD
 
     def seed_ohlc(self, ohlc_data: Dict[str, List[Dict]]):
         """Seed both bar_history and ohlc_history from full candle data.
@@ -213,7 +213,7 @@ class TechnicalAnalyzer:
                 if ticks and sigma > 0:
                     z = (ticks[-1] - mu) / sigma
                     self.z_scores[pair] = z
-                    self.extremes[pair] = abs(z) >= config.Z_SCORE_THRESHOLD
+                    self.extremes[pair] = abs(z) >= config.SCALP_Z_SCORE_THRESHOLD
 
     def clear_history(self):
         for pair in self.bar_history:

@@ -1,20 +1,11 @@
 """
-APEX Layer 1 — Tab 1: Dashboard
+APEX Dashboard — Tab 1: Primary View
 
-This is the main screen the user sees every day.
+Top section:  LIVE SIGNAL (intraday, from CurrencyStrengthMatrix Z-scores)
+Bottom section: MACRO BACKDROP (monthly, from scorer.py fundamental data)
 
-Features:
-- Signal card at top (shows PRIMARY SIGNAL, gap, status, updated date)
-- Ranked score table below with all 8 currencies
-- Strongest row highlighted GREEN (BUY)
-- Weakest row highlighted RED (SELL)
-- Score bar charts per row (visual progress)
-- Auto-refresh when data updated from Entry tab or FRED API
-
-Display:
-- Rank, Currency, Rate, CPI, PMI, Score columns
-- Color-coded rows, "BUY" and "SELL" tags
-- Last updated timestamp
+The live signal is the primary trading reference. Macro Backdrop is slow-moving
+context for display only.
 """
 
 from PyQt5.QtWidgets import (
@@ -27,29 +18,34 @@ from typing import Dict, Optional
 from datetime import datetime
 import config
 from database import Database
+from currency_strength_matrix import CurrencyStrengthMatrix
+from layer2_technical import TechnicalAnalyzer
 import scorer
 
 
 class DashboardTab(QWidget):
-    """Main dashboard showing current signal and currency rankings."""
+    """Dashboard: live intraday signal (CurrencyStrengthMatrix) + macro backdrop (scorer)."""
     
     # Signal to request FRED fetch
     fetch_rates_requested = pyqtSignal()
     
     # Signal emitted when new signal generated (for Layer 2 confluence)
-    # Emits: strongest, weakest, gap, directional_bias_matrix
     signal_generated = pyqtSignal(str, str, float, dict)
     
-    def __init__(self, db: Database):
+    def __init__(self, db: Database, tech_analyzer: TechnicalAnalyzer = None):
         """
         Initialize Dashboard tab.
         
         Args:
             db: Database instance
+            tech_analyzer: TechnicalAnalyzer instance for live signal data
         """
         super().__init__()
         self.db = db
+        self.tech_analyzer = tech_analyzer or TechnicalAnalyzer()
+        self.matrix = CurrencyStrengthMatrix()
         self.current_month = datetime.now().strftime("%Y-%m")
+        self._last_matrix_report = None
         
         self._init_ui()
         self._refresh_display()
@@ -59,12 +55,16 @@ class DashboardTab(QWidget):
         layout = QVBoxLayout()
         layout.setSpacing(12)
         
-        # ====== Signal Card ======
-        signal_card = self._build_signal_card()
-        layout.addWidget(signal_card)
+        # ====== Live Signal Card (intraday, from CurrencyStrengthMatrix) ======
+        live_card = self._build_live_signal_card()
+        layout.addWidget(live_card)
         
-        # ====== Ranked Score Table ======
-        heading = QLabel("Currency Rankings")
+        # ====== Macro Backdrop Card (monthly, from scorer.py) ======
+        backdrop_card = self._build_macro_backdrop_card()
+        layout.addWidget(backdrop_card)
+        
+        # ====== Ranked Score Table (Macro Backdrop detail) ======
+        heading = QLabel("Macro Backdrop — Currency Rankings")
         heading.setProperty("heading", True)
         layout.addWidget(heading)
         
@@ -119,36 +119,77 @@ class DashboardTab(QWidget):
         
         self.setLayout(layout)
     
-    def _build_signal_card(self) -> QFrame:
-        """Build the signal card frame."""
+    def _build_live_signal_card(self) -> QFrame:
+        """Build the live intraday signal card (from CurrencyStrengthMatrix)."""
         card = QFrame()
         card.setObjectName("statusCard")
+
+        layout = QVBoxLayout()
+        layout.setSpacing(6)
+
+        title = QLabel("LIVE SIGNAL (Intraday)")
+        title.setProperty("subheading", True)
+        layout.addWidget(title)
+
+        # Matrix Cross pair (largest divergence)
+        self.live_signal_label = QLabel("Waiting for Layer 2 data...")
+        self.live_signal_label.setProperty("value", True)
+        self.live_signal_label.setStyleSheet("color: #2c3e50;")
+        layout.addWidget(self.live_signal_label)
+
+        # Divergence gap
+        self.live_gap_label = QLabel("Divergence: — σ")
+        self.live_gap_label.setStyleSheet("font-size: 15px; color: #5d6d7e;")
+        layout.addWidget(self.live_gap_label)
+
+        # Matrix ranked currencies (top/bottom 2)
+        self.live_ranked_label = QLabel("")
+        self.live_ranked_label.setStyleSheet("font-size: 13px; color: #7f8c8d;")
+        layout.addWidget(self.live_ranked_label)
+
+        # Session + SRV
+        self.live_session_label = QLabel("Session: —  |  SRV: —")
+        self.live_session_label.setStyleSheet("font-size: 12px; color: #95a5a6;")
+        layout.addWidget(self.live_session_label)
+
+        # Entry zones (SL/TP text-described, not executable)
+        self.live_entry_zones = QLabel("")
+        self.live_entry_zones.setStyleSheet("font-size: 12px; color: #8e44ad;")
+        layout.addWidget(self.live_entry_zones)
+
+        # Updated timestamp
+        self.live_updated_label = QLabel("Updated: —")
+        self.live_updated_label.setStyleSheet("color: #95a5a6; font-size: 12px;")
+        layout.addWidget(self.live_updated_label)
+
+        layout.addStretch()
+        card.setLayout(layout)
+        return card
+
+    def _build_macro_backdrop_card(self) -> QFrame:
+        """Build the macro backdrop card frame (from scorer.py fundamental data)."""
+        card = QFrame()
+        card.setObjectName("card")
         
         layout = QVBoxLayout()
         layout.setSpacing(6)
         
-        # Title
-        title = QLabel("PRIMARY SIGNAL")
+        title = QLabel("MACRO BACKDROP (Fundamental — slow context)")
         title.setProperty("subheading", True)
         layout.addWidget(title)
         
-        # Signal text (large, bold)
-        self.signal_label = QLabel("NO TRADE — Initializing...")
-        self.signal_label.setProperty("value", True)
-        self.signal_label.setStyleSheet("color: #2c3e50;")
-        layout.addWidget(self.signal_label)
+        self.macro_signal_label = QLabel("NO TRADE — Initializing...")
+        self.macro_signal_label.setStyleSheet("font-size: 18px; font-weight: 600; color: #2c3e50;")
+        layout.addWidget(self.macro_signal_label)
         
-        # Gap and status
-        self.gap_label = QLabel("Gap: — points")
-        self.gap_label.setStyleSheet("font-size: 15px; color: #5d6d7e;")
-        layout.addWidget(self.gap_label)
+        self.macro_gap_label = QLabel("Gap: — points")
+        self.macro_gap_label.setStyleSheet("font-size: 13px; color: #5d6d7e;")
+        layout.addWidget(self.macro_gap_label)
         
-        # Updated timestamp
-        self.updated_label = QLabel("Updated: —")
-        self.updated_label.setStyleSheet("color: #95a5a6; font-size: 12px;")
-        layout.addWidget(self.updated_label)
+        self.macro_updated_label = QLabel("Updated: —")
+        self.macro_updated_label.setStyleSheet("color: #95a5a6; font-size: 12px;")
+        layout.addWidget(self.macro_updated_label)
         
-        # Staleness warning (hidden by default)
         self.stale_warning = QLabel("")
         self.stale_warning.setStyleSheet(
             "color: #e74c3c; font-weight: 700; font-size: 13px; padding: 6px 0;"
@@ -161,9 +202,8 @@ class DashboardTab(QWidget):
         return card
     
     def _refresh_display(self):
-        """Refresh dashboard with latest data."""
+        """Refresh macro backdrop with latest fundamental data."""
         try:
-            # Get signal for current month
             signal_data = self.db.get_signal(self.current_month)
             
             if signal_data:
@@ -173,7 +213,6 @@ class DashboardTab(QWidget):
                 strongest = signal_data.get("strongest")
                 weakest = signal_data.get("weakest")
 
-                # Build directional bias matrix and emit to confluence tab
                 if strongest and weakest:
                     scores = self.db.get_month_scores(self.current_month)
                     if scores:
@@ -182,13 +221,10 @@ class DashboardTab(QWidget):
                         bias_matrix = {}
                     self.signal_generated.emit(strongest, weakest, gap, bias_matrix)
                 
-                self.signal_label.setText(signal_text)
-                if status == "ACTIVE":
-                    self.signal_label.setStyleSheet("color: #27ae60;")
-                else:
-                    self.signal_label.setStyleSheet("color: #e74c3c;")
+                self.macro_signal_label.setText(signal_text)
+                color = "#27ae60" if status == "ACTIVE" else "#e74c3c"
+                self.macro_signal_label.setStyleSheet(f"font-size: 18px; font-weight: 600; color: {color};")
                 
-                # Update gap label
                 gap_tier = scorer.get_gap_tier(gap)
                 tier_name = {
                     "no_trade": "Too narrow",
@@ -197,26 +233,112 @@ class DashboardTab(QWidget):
                     "strong": "Strong signal"
                 }.get(gap_tier, "Unknown")
                 
-                self.gap_label.setText(f"Gap: {gap:.1f} points · {tier_name}")
+                self.macro_gap_label.setText(f"Gap: {gap:.1f} points · {tier_name}")
             else:
-                self.signal_label.setText("NO TRADE — No data yet")
-                self.signal_label.setStyleSheet("color: #e74c3c;")
-                self.gap_label.setText("Gap: — points")
+                self.macro_signal_label.setText("NO TRADE — No data yet")
+                self.macro_signal_label.setStyleSheet("font-size: 18px; font-weight: 600; color: #e74c3c;")
+                self.macro_gap_label.setText("Gap: — points")
             
-            # Update timestamp
-            self.updated_label.setText(f"Updated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+            self.macro_updated_label.setText(f"Updated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
             
-            # Check for stale CPI/PMI data
             self._check_data_staleness()
-            
-            # Refresh score table
             self._refresh_score_table()
             
         except Exception as e:
             print(f"[ERROR] Failed to refresh dashboard: {e}")
-            self.signal_label.setText("ERROR")
-            self.signal_label.setStyleSheet("color: #e74c3c;")
+            self.macro_signal_label.setText("ERROR")
+            self.macro_signal_label.setStyleSheet("font-size: 18px; font-weight: 600; color: #e74c3c;")
     
+    def _refresh_live_signal(self):
+        """Refresh the live intraday signal from CurrencyStrengthMatrix."""
+        try:
+            z_scores = self.tech_analyzer.get_all_z_scores()
+            if not z_scores:
+                self.live_signal_label.setText("Waiting for Layer 2 data...")
+                self.live_signal_label.setStyleSheet("font-size: 28px; font-weight: 700; color: #95a5a6;")
+                self.live_gap_label.setText("Divergence: — σ")
+                self.live_ranked_label.setText("")
+                self.live_session_label.setText("Session: —  |  SRV: —")
+                self.live_entry_zones.setText("")
+                return
+
+            current_prices = {}
+            for pair in z_scores:
+                lp = self.tech_analyzer.get_last_price(pair)
+                if lp is not None:
+                    current_prices[pair] = lp
+
+            self.matrix.update(z_scores, current_prices=current_prices)
+            report = self.matrix.get_report()
+            self._last_matrix_report = report
+
+            mc = report.get("matrix_cross")
+            gap = report.get("divergence_gap", 0)
+            has_div = report.get("has_divergence", False)
+            ranked = report.get("ranked", [])
+
+            if mc and mc != "N/A":
+                signal_text = mc
+                color = "#e74c3c" if has_div else "#2c3e50"
+                self.live_signal_label.setText(signal_text)
+                self.live_signal_label.setStyleSheet(f"font-size: 28px; font-weight: 700; color: {color};")
+                self.live_gap_label.setText(f"Divergence: {gap:.2f}σ{' — EXTREME' if has_div else ''}")
+            else:
+                self.live_signal_label.setText("No divergence")
+                self.live_signal_label.setStyleSheet("font-size: 28px; font-weight: 700; color: #95a5a6;")
+                self.live_gap_label.setText("Divergence: — σ")
+
+            if ranked:
+                top2 = [f"{c[0]}({c[1]:+.1f}σ)" for c in ranked[:2]]
+                bot2 = [f"{c[0]}({c[1]:+.1f}σ)" for c in ranked[-2:]]
+                self.live_ranked_label.setText(
+                    f"Strongest: {'  '.join(top2)}  |  Weakest: {'  '.join(bot2)}"
+                )
+            else:
+                self.live_ranked_label.setText("")
+
+            session = report.get("active_session", "—")
+            srv_data = self.matrix.get_srv_map()
+            srv_parts = []
+            if srv_data:
+                for ccy in ranked[:3]:
+                    name = ccy[0]
+                    if name in srv_data:
+                        s = srv_data[name]
+                        sign = "+" if s >= 0 else ""
+                        srv_parts.append(f"{name}: {sign}{s:.3f}%")
+            srv_str = "  |  ".join(srv_parts)
+            self.live_session_label.setText(
+                f"Session: {session}  |  SRV: {srv_str}" if srv_str
+                else f"Session: {session}  |  SRV: —"
+            )
+
+            # Text-described entry zones (advisory only, no position sizing)
+            entry_parts = []
+            if mc and mc != "N/A":
+                entry_price = self.tech_analyzer.get_last_price(mc)
+                if entry_price:
+                    sl_tp = self.tech_analyzer.calculate_sl_tp(
+                        mc, "LONG" if has_div else "SHORT", entry_price
+                    )
+                    if sl_tp.get("sl") and sl_tp.get("tp"):
+                        entry_parts.append(
+                            f"Entry zones — {mc}: ~{entry_price:.5f} "
+                            f"(SL: {sl_tp['sl']:.5f}, TP: {sl_tp['tp']:.5f})"
+                        )
+            self.live_entry_zones.setText("  |  ".join(entry_parts))
+
+            self.live_updated_label.setText(
+                f"Updated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
+            )
+
+        except Exception as e:
+            print(f"[Dashboard] Live signal error: {e}")
+
+    def update_live_signal(self):
+        """Called externally to trigger live signal refresh."""
+        self._refresh_live_signal()
+
     def _check_data_staleness(self):
         """Show a warning if CPI/PMI data is older than 35 days."""
         try:
